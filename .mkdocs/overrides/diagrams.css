@@ -1,0 +1,19 @@
+/* A diagram is never squeezed to fit the column: it keeps its natural size and
+   scrolls sideways inside its own box, so the labels stay readable. */
+div.gnr-mermaid {
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  padding: 0.4rem 0;
+}
+div.gnr-mermaid svg {
+  max-width: none !important;
+  height: auto;
+}
+
+/* Source pages retain selectable code, stable line anchors and bounded overflow. */
+.source-view { overflow-x: auto; max-width: 100%; padding: 1rem; }
+.source-line { display: block; min-height: 1.3em; scroll-margin-top: 5rem; }
+.source-line:target { background: var(--md-accent-fg-color--transparent); }
+.source-number { display: inline-block; min-width: 4em; text-align: right;
+  padding-right: 1em; user-select: none; opacity: .65; }

@@ -1,0 +1,11 @@
+---
+search:
+  exclude: true
+---
+
+# `{{ path }}`
+
+Source from this local checkout, regenerated when the reader rebuilds.
+Line links use `#L<number>`; a GitHub line range opens its first line.
+
+<pre class="source-view"><code>{% for line in lines %}<span class="source-line" id="L{{ loop.index }}"><a class="source-number" href="#L{{ loop.index }}" aria-label="Line {{ loop.index }}">{{ loop.index }}</a> {{ line }}</span>{% endfor %}</code></pre>

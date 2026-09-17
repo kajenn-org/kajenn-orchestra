@@ -1,0 +1,59 @@
+# A reader for the internals dossier — `mkdocs serve`, then open the address below.
+#
+# It renders internals/ AS IT IS ON DISK: no copy is produced and no build is
+# published, so what you read is your own checkout on your own branch. Install
+# it with `pip install -e '.[internals]'`.
+#
+# This is NOT the user-facing documentation: that is Sphinx, in docs/.
+site_name: kajenn-orchestra — internals
+docs_dir: internals
+site_dir: .mkdocs/site
+use_directory_urls: true
+
+hooks:
+  - .mkdocs/source_views.py
+
+# Fixed on purpose: a shared port makes a deep link work for a colleague who
+# has the reader running — http://127.0.0.1:8771/20_spa/020_orchestration/#the-anatomy
+dev_addr: 127.0.0.1:8771
+
+theme:
+  name: material
+  custom_dir: .mkdocs/overrides
+  language: en
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - content.code.copy
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle: {icon: material/weather-night, name: dark}
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle: {icon: material/weather-sunny, name: light}
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences:
+      custom_fences:
+        # Diagrams are rendered by .mkdocs/overrides/render-mermaid.js, not by the
+        # theme: the theme's own pass emptied the block without drawing anything.
+        - name: mermaid
+          class: gnr-mermaid
+          format: !!python/name:pymdownx.superfences.fence_div_format
+  - pymdownx.details
+  - pymdownx.highlight
+
+extra_javascript:
+  - https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js
+  - render-mermaid.js
+
+extra_css:
+  - diagrams.css
