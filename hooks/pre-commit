@@ -1,0 +1,39 @@
+#!/bin/bash
+# pre-commit hook - Run code quality checks before commit
+#
+# Install: cp hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+#
+# Runs:
+#   1. ruff check - Linting           (BLOCKS the commit on failure)
+#   2. mypy       - Type checking      (ADVISORY only, never blocks)
+#
+# Policy: mypy is a non-blocking advisor. Type errors are printed for
+# awareness but do not stop the commit. The dynamic metaprogramming of the
+# builders produces type-boundary errors that are silenced per-category in
+# pyproject.toml ([[tool.mypy.overrides]]), never with casts in the code.
+# See the central CLAUDE.md "Git Hooks" / "Development Workflow" sections.
+
+set -e
+
+echo "Running pre-commit checks..."
+
+# Run ruff (blocking)
+echo "  [1/2] Running ruff..."
+if ! ruff check src/; then
+    echo "  ❌ FAILED: ruff found issues"
+    echo "  Run 'ruff check src/' to see details"
+    exit 1
+fi
+echo "  ✅ PASSED: ruff"
+
+# Run mypy (advisory, non-blocking)
+echo "  [2/2] Running mypy (advisory)..."
+if mypy src/ --ignore-missing-imports; then
+    echo "  ✅ mypy: no issues"
+else
+    echo "  ⚠️  mypy reported issues above — ADVISORY ONLY, commit not blocked"
+    echo "     Run 'mypy src/' to review. Do NOT silence with casts/type:ignore"
+    echo "     in code; use per-category overrides in pyproject.toml if needed."
+fi
+
+echo "✅ Pre-commit checks done (ruff passed; mypy advisory)."

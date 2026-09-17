@@ -1,0 +1,68 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kajenn-orchestra"
+version = "0.0.0"
+description = "Orchestration for kajenn: SPA application, worker pool, sticky routing, freeze and reassignment"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Genropy Team", email = "info@softwell.it"}
+]
+keywords = ["asgi", "web", "async", "http", "server"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Framework :: AsyncIO",
+]
+
+# 0.0.0 reserves the name on PyPI. Dependencies arrive with 0.1.0.
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=7.0", "pytest-cov>=4.0", "pytest-asyncio>=0.23"]
+dev = ["kajenn-orchestra[test]", "ruff>=0.1.0", "mypy>=1.0"]
+docs = ["sphinx>=7.0", "sphinx-rtd-theme>=2.0", "sphinx-autodoc-typehints>=2.0", "myst-parser>=2.0"]
+
+[project.urls]
+Homepage = "https://kajenn.org"
+Repository = "https://github.com/kajenn-org/kajenn-orchestra"
+"Bug Tracker" = "https://github.com/kajenn-org/kajenn-orchestra/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "src/kajenn_orchestra",]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "-v --cov=kajenn_orchestra --cov-report=term-missing"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+# Frozen default rule set, as in genro-asgi: adopting a rule is a per-rule decision.
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
+
+# mypy is a non-blocking advisor: non-strict, findings reviewed but never gating.
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+exclude = ["tests/"]
