@@ -51,3 +51,11 @@ checkout install `python -m pip install -e '.[internals]'`, then run
 `mkdocs serve`. Its default address is `http://127.0.0.1:8771/`; its source views
 show the local checkout, including uncommitted changes. See `.mkdocs/README.md`
 in the repository for reader verification and alternate-port commands.
+
+## Branding assets
+
+The documentation sidebar uses the symbol; the home page shows the full wordmark.
+The home-page brand panel follows the browser color preference, with a charcoal
+panel for the opaque dark-background variant. The rest of the classic Read the
+Docs theme is unchanged. Asset copies in `docs/_static/branding/` must match the
+canonical PNGs in `assets/branding/`; update both when the approved logo changes.
