@@ -1,0 +1,10 @@
+/* Brand artwork is kept separate from the documentation theme. */
+.wy-side-nav-search .logo { max-width: 96px; max-height: 96px; width: auto; height: auto; }
+.brand-lockup { text-align: center; margin: 0 0 1.5rem; padding: 1rem; background: #fff; border-radius: 8px; }
+.brand-lockup img { width: 190px; max-width: 100%; height: auto; }
+.brand-lockup .brand-dark { display: none; }
+@media (prefers-color-scheme: dark) {
+  .brand-lockup { background: #0d1117; }
+  .brand-lockup .brand-light { display: none; }
+  .brand-lockup .brand-dark { display: inline; }
+}

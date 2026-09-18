@@ -50,11 +50,12 @@ myst_heading_anchors = 3
 
 html_theme = "sphinx_rtd_theme"
 html_static_path = ["_static"]
-html_css_files = ["diagrams.css"]
+html_css_files = ["diagrams.css", "branding.css"]
+html_logo = "_static/branding/kajenn-orchestra-mark.png"
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
-    "kajenn": ("https://kajenn.org", None),
+    "kajenn": ("https://kajenn.readthedocs.io/en/latest/", None),
 }
 
 # Napoleon: the codebase uses Google-style docstrings.
