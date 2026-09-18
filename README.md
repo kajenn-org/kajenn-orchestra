@@ -1,7 +1,10 @@
 # kajenn-orchestra
 
 <p align="center">
-  <img src="assets/branding/kajenn-orchestra-logo.png" alt="kajenn orchestra" width="200">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/branding/kajenn-orchestra-logo-dark.png">
+    <img src="assets/branding/kajenn-orchestra-logo.png" alt="kajenn orchestra" width="200">
+  </picture>
 </p>
 
 **Status**: Alpha · version 0.1.0.
