@@ -26,8 +26,6 @@ jobs:
       - name: Install project with dev extras
         run: |
           python -m pip install --upgrade pip
-          # kajenn 0.1.0 is not on PyPI yet: take it from the repository.
-          pip install "git+https://github.com/kajenn-org/kajenn.git@main"
           pip install ".[dev]"
 
       - name: Ruff
