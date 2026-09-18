@@ -14,7 +14,7 @@ Applying a stored profile to a live pool is a separate mechanism and lives
 elsewhere: the `SpaApplication` front reads a profile at boot and exposes the
 hot apply under its own `_orchestration` root — see *Applying a profile* below.
 Both sides share one storage component, `OrchestrationProfileStore`
-(`src/kajenn/orchestration_profile_store.py`): name validation, symlink refusal, the
+(`src/kajenn_orchestra/orchestration_profile_store.py`): name validation, symlink refusal, the
 1 MiB limit, the object-only JSON read and the atomic write live there, and
 this archive delegates to it.
 
@@ -95,7 +95,7 @@ are kept as SEPARATE dicts on the vertex and never pre-merged: every later
 apply recomposes from them. Structural keys (group shape, not setpoints) are
 handed through untouched and are refused as profile keys. A named profile that
 does not exist, a profile that does not validate, or an env level with nowhere
-to land raises `FatalBootError` (`src/kajenn/lifespan.py`) — the one
+to land raises `FatalBootError` ([`src/kajenn/lifespan.py`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/lifespan.py)) — the one
 exception an `on_startup` hook may raise to make the boot fail: the lifespan
 answers `lifespan.startup.failed` and the server exits. There is no silent
 fallback.

@@ -16,7 +16,7 @@ and written here in the same words. It is settled once for both.
 historical no-WebSocket finding below is superseded by the delivered
 `BaseServer.on_websocket`, `WsxConnection` and raw `serve_websocket` seam.
 Evidence and owner provenance:
-[WebSocket decisions](../../10_server/055_websocket/decisions.md) and [WebSocket status](../../10_server/055_websocket/status.md).
+[WebSocket decisions](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/055_websocket/decisions.md) and [WebSocket status](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/055_websocket/status.md).
 
 The rows of this entry that are not ratified are in
 [open_decisions.md](open_decisions.md).

@@ -56,7 +56,7 @@ Claim anchors: [`handshake_cookie`](../../../src/kajenn_orchestra/spa_app.py#L52
 - [src/kajenn_orchestra/spa_app.py](../../../src/kajenn_orchestra/spa_app.py)
 - [src/kajenn_orchestra/orchestration/spa_commander.py](../../../src/kajenn_orchestra/orchestration/spa_commander.py)
 - [src/kajenn_orchestra/orchestration/spa_worker.py](../../../src/kajenn_orchestra/orchestration/spa_worker.py)
-- [src/kajenn/wsx.py](../../../src/kajenn/wsx.py)
+- [src/kajenn/wsx.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/wsx.py)
 - [tests/spa/test_spa_application.py](../../../tests/spa/test_spa_application.py)
 - [tests/spa/test_spa_app_profiles.py](../../../tests/spa/test_spa_app_profiles.py)
 - [tests/spa/orchestration/test_orchestration_websocket_e2e.py](../../../tests/spa/orchestration/test_orchestration_websocket_e2e.py)

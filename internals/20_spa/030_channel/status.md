@@ -19,7 +19,7 @@ fails parked calls and notifies the owning worker handler. The underlying
 Frame id is therefore already used for request/reply, despite older generic
 frame docstrings calling that a future extension.
 
-Claim anchors: [`Frame`](../../../src/kajenn/channel/frame.py#L52), [`FrameStream`](../../../src/kajenn/channel/frame.py#L106), [`ChannelHub`](../../../src/kajenn/channel/hub.py#L135), [`ChannelClient`](../../../src/kajenn/channel/client.py#L53), [`LocalChannel`](../../../src/kajenn/channel/local.py#L127), [`WorkerConnector`](../../../src/kajenn_orchestra/orchestration/worker_connector.py#L144).
+Claim anchors: [`Frame`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/frame.py#L61), [`FrameStream`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/frame.py#L258), [`ChannelHub`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/hub.py#L136), [`ChannelClient`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/client.py#L54), [`LocalChannel`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/local.py#L113), [`WorkerConnector`](../../../src/kajenn_orchestra/orchestration/worker_connector.py#L144).
 
 ## Payload ownership and current limits
 
@@ -35,19 +35,19 @@ because both start with `WSX://`. The proposed opaque transport of #72 is not
 part of this baseline. The earlier cross-entry 'no application WebSocket'
 friction was overtaken by the delivered WSX and raw application seam.
 
-Claim anchors: [`WsxEnvelope`](../../../src/kajenn/wsx.py#L101).
+Claim anchors: [`WsxEnvelope`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/wsx.py#L102).
 
 ## Source and test evidence
 
-- [src/kajenn/channel/frame.py](../../../src/kajenn/channel/frame.py)
-- [src/kajenn/channel/hub.py](../../../src/kajenn/channel/hub.py)
-- [src/kajenn/channel/client.py](../../../src/kajenn/channel/client.py)
-- [src/kajenn/channel/local.py](../../../src/kajenn/channel/local.py)
+- [src/kajenn/channel/frame.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/frame.py)
+- [src/kajenn/channel/hub.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/hub.py)
+- [src/kajenn/channel/client.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/client.py)
+- [src/kajenn/channel/local.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/local.py)
 - [src/kajenn_orchestra/orchestration/worker_connector.py](../../../src/kajenn_orchestra/orchestration/worker_connector.py)
 - [src/kajenn_orchestra/orchestration/spa_worker.py](../../../src/kajenn_orchestra/orchestration/spa_worker.py)
-- [src/kajenn/wsx.py](../../../src/kajenn/wsx.py)
-- [tests/core/test_channel.py](../../../tests/core/test_channel.py)
-- [tests/core/test_channel_hub.py](../../../tests/core/test_channel_hub.py)
-- [tests/core/test_channel_local.py](../../../tests/core/test_channel_local.py)
+- [src/kajenn/wsx.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/wsx.py)
+- [tests/core/test_channel.py](https://github.com/kajenn-org/kajenn/blob/main/tests/core/test_channel.py)
+- [tests/core/test_channel_hub.py](https://github.com/kajenn-org/kajenn/blob/main/tests/core/test_channel_hub.py)
+- [tests/core/test_channel_local.py](https://github.com/kajenn-org/kajenn/blob/main/tests/core/test_channel_local.py)
 - [tests/spa/orchestration/test_orchestration_worker_connector.py](../../../tests/spa/orchestration/test_orchestration_worker_connector.py)
 - [tests/spa/orchestration/test_contract_phase7_worker_call_lane.py](../../../tests/spa/orchestration/test_contract_phase7_worker_call_lane.py)

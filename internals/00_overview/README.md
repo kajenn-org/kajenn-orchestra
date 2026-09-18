@@ -1,12 +1,15 @@
 # 00 Overview — how to read this folder
 
-**Version**: 0.6 · **Last Updated**: 2026-09-08 · **Status**: 🔴 DA REVISIONARE
+**Version**: 0.7 · **Last Updated**: 2026-09-17 · **Status**: 🔴 DA REVISIONARE
 
-kajenn as three worlds, read in order: **10_server** (the machine and
-everything an installation runs on), **20_spa** (the SPA world and its
-orchestration), **30_deploy** (how installations ship, update and scale —
-today entirely unratified proposals). Inside each world the numbered
-folders ARE the reading order: no entry needs a concept that comes later.
+This dossier holds one world: **20_spa**, the SPA world and its orchestration,
+with the named configuration profiles the pool is run with. Inside it the
+numbered folders ARE the reading order: no entry needs a concept that comes
+later. Two neighbouring worlds are read from their own repositories —
+**10_server**, the machine and everything an installation runs on, in the
+`internals/` of kajenn; **30_deploy**, how installations ship, update and
+scale, in the `internals/` of kajenn-meta, today entirely unratified
+proposals.
 
 A **feature** is a human term before a technical one: a need users or
 admins have, and our idea to solve it. A few entries are **shelves**
@@ -148,7 +151,7 @@ exists to produce a question for the interview, and it dies there.
 
 The mechanism of configuration — the tree, its layers, the read stack, the
 subscribers and their triggers — is explained once, in
-[015 configuration](../10_server/015_configuration/README.md). Every other entry
+[015 configuration](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/015_configuration/README.md). Every other entry
 declares only **what it adds** to that tree, and does it by ending its
 `design.md` with a **complete recipe that includes its own feature**: not a
 fragment of the section it owns, but a whole installation someone could run,
@@ -185,10 +188,10 @@ resolution can be filtered on three independent axes, one per bundled plugin of
 genro-routes — `auth` on the caller's **tags**, `env` on the installation's
 **capabilities**, `channel` on the **channel** a request arrived through — and
 the dossier described only the first. The subject now lives in
-[025 routing system](../10_server/025_routing-system/README.md), which was `025_plugins`
+[025 routing system](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/025_routing-system/README.md), which was `025_plugins`
 and was renamed for it: the routing system first, the plugins after. It comes
 *after* applications on purpose —
-[020 applications](../10_server/020_applications/README.md) states that an application
+[020 applications](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/020_applications/README.md) states that an application
 **is** a routing class, and that one sentence is enough for its own blocks to
 stand while the mechanism is explained here. *(Owner, 2026-08-24.)*
 
@@ -334,56 +337,58 @@ from inside a single one. The assembly point today is `.phased/roadmap.md`.
 
 ## The whole building at a glance
 
-Three worlds, each standing on the one below. What lives inside each is the
-three tables that follow — a diagram of those lists would only redraw them.
+Three worlds, each standing on the one below, one per repository. This dossier
+owns the middle one. What lives inside each is the three tables that follow — a
+diagram of those lists would only redraw them.
 
 ```mermaid
 flowchart TB
-    D30["<b>30_deploy</b><br/>shipping, updating, scaling<br/>🔴 proposals"]
-    D20["<b>20_spa</b><br/>the SPA world and its orchestration"]
-    D10["<b>10_server</b><br/>the machine every installation runs on"]
+    D30["<b>30_deploy</b><br/>shipping, updating, scaling<br/>🔴 proposals · kajenn-meta"]
+    D20["<b>20_spa</b><br/>the SPA world and its orchestration<br/>this repository"]
+    D10["<b>10_server</b><br/>the machine every installation runs on<br/>kajenn"]
     D30 -->|stands on| D20
     D20 -->|stands on| D10
 ```
 
-## 10_server — the machine, in reading order
+## 20_spa — the SPA world, in reading order
 
 | Entry | In one line |
 |---|---|
-| [010 server](../10_server/010_server/README.md) | the ground: the server object, the applications it hosts, how a request finds one, ordered start and stop |
-| [015 configuration](../10_server/015_configuration/README.md) | the tree every entry reads its own words from: layers, read stack, subscribers |
-| [020 applications](../10_server/020_applications/README.md) | RoutedApplication and the routing tree · [openapi](../10_server/020_applications/openapi/README.md) · [mcp](../10_server/020_applications/mcp/README.md) |
-| [025 routing system](../10_server/025_routing-system/README.md) | what a routing class is: the tree, the filtered walk, and the plugins armed on it |
-| [030 middleware](../10_server/030_middleware/README.md) | the uniform middleware chain every request passes |
-| [040 sessions](../10_server/040_sessions/README.md) | per-user server-side state between requests |
-| [050 authentication](../10_server/050_authentication/README.md) | 401 vs 403 · [avatar](../10_server/050_authentication/avatar/README.md) · [tags](../10_server/050_authentication/tags/README.md) |
-| [055 websocket](../10_server/055_websocket/README.md) | WSX requests and events, handshake identity, page channels, and the raw WebSocket seam |
-| [060 storage](../10_server/060_storage/README.md) | the only access to the filesystem, through storage nodes |
-| [065 db](../10_server/065_db/README.md) | databases mounted through the recipe, no backend in the core |
-| [070 tasks](../10_server/070_tasks/README.md) | work that is no HTTP request |
-| [080 task-thermometers](../10_server/080_task-thermometers/README.md) | see a batch move, stop it politely |
-| [090 server-application](../10_server/090_server-application/README.md) | the `_server` app and its sections · [monitor](../10_server/090_server-application/monitor/README.md) · [inspector](../10_server/090_server-application/inspector/README.md) |
-| [110 cli](../10_server/110_cli/README.md) | drive installations from the shell |
-| [120 restart](../10_server/120_restart/README.md) | born here; enriched by spa → subcommanders → kube |
-
-## 20_spa — the SPA world
-
-| Entry | In one line |
-|---|---|
-| [010 spa-application](../20_spa/010_spa-application/README.md) | a stable, stateless front to the hosted site |
+| [010 spa-application](../20_spa/010_spa-application/README.md) | one stable door to the hosted site, no state in the door |
 | [020 orchestration](../20_spa/020_orchestration/README.md) | many users with live state, scaled across processes, never split |
-| [030 channel](../20_spa/030_channel/README.md) | the wire: frames, hub, the lane (shelf) |
+| [030 channel](../20_spa/030_channel/README.md) | the wire: frames, hub, the lane |
 | [040 global-store](../20_spa/040_global-store/README.md) | one shared state, safe read-modify-write |
 | [070 console](../20_spa/070_console/README.md) | ask a live pool the questions nobody predicted |
-| [080 bridge-contract](../20_spa/080_bridge-contract/README.md) | what genropy-asgi implements and consumes — generalized core, legacy logic in the bridge |
+| [080 bridge-contract](../20_spa/080_bridge-contract/README.md) | what genropy-asgi implements and consumes — generalized core, site logic in the bridge |
+| [090 configuration_profiles](../20_spa/090_configuration_profiles/README.md) | the archive of named orchestration profiles, and how one is put in force |
 
-## 30_deploy — shipping, updating, scaling (🔴 proposals)
+## 10_server — the machine this world stands on, in kajenn
 
 | Entry | In one line |
 |---|---|
-| [010 deployment-bundles](../30_deploy/010_deployment-bundles/README.md) | immutable bundles on S3, channels, cohorts, promotion without rebuild |
-| [020 kubernetes-deploy](../30_deploy/020_kubernetes-deploy/README.md) | the cluster runs, the commander decides |
-| [030 subcommanders](../30_deploy/030_subcommanders/README.md) | delegated authority: root → subcommander → group → worker |
+| [010 server](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/010_server/README.md) | the ground: the server object, the applications it hosts, how a request finds one, ordered start and stop |
+| [015 configuration](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/015_configuration/README.md) | the tree every entry reads its own words from: layers, read stack, subscribers |
+| [020 applications](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/020_applications/README.md) | RoutedApplication and the routing tree · [openapi](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/020_applications/openapi/README.md) · [mcp](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/020_applications/mcp/README.md) |
+| [025 routing system](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/025_routing-system/README.md) | what a routing class is: the tree, the filtered walk, and the plugins armed on it |
+| [030 middleware](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/030_middleware/README.md) | the uniform middleware chain every request passes |
+| [040 sessions](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/040_sessions/README.md) | per-user server-side state between requests |
+| [050 authentication](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/050_authentication/README.md) | 401 vs 403 · [avatar](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/050_authentication/avatar/README.md) · [tags](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/050_authentication/tags/README.md) |
+| [055 websocket](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/055_websocket/README.md) | WSX requests and events, handshake identity, page channels, and the raw WebSocket seam |
+| [060 storage](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/060_storage/README.md) | the only access to the filesystem, through storage nodes |
+| [065 db](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/065_db/README.md) | databases mounted through the recipe, no backend in the core |
+| [070 tasks](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/070_tasks/README.md) | work that is no HTTP request |
+| [080 task-thermometers](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/080_task-thermometers/README.md) | see a batch move, stop it politely |
+| [090 server-application](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/090_server-application/README.md) | the `_server` app and its sections · [monitor](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/090_server-application/monitor/README.md) · [inspector](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/090_server-application/inspector/README.md) |
+| [110 cli](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/110_cli/README.md) | drive installations from the shell |
+| [120 restart](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/120_restart/README.md) | born here; enriched by spa → subcommanders → kube |
+
+## 30_deploy — shipping, updating, scaling, in kajenn-meta (🔴 proposals)
+
+| Entry | In one line |
+|---|---|
+| [010 deployment-bundles](https://github.com/kajenn-org/kajenn-meta/blob/main/internals/30_deploy/010_deployment-bundles/README.md) | immutable bundles on S3, channels, cohorts, promotion without rebuild |
+| [020 kubernetes-deploy](https://github.com/kajenn-org/kajenn-meta/blob/main/internals/30_deploy/020_kubernetes-deploy/README.md) | the cluster runs, the commander decides |
+| [030 subcommanders](https://github.com/kajenn-org/kajenn-meta/blob/main/internals/30_deploy/030_subcommanders/README.md) | delegated authority: root → subcommander → group → worker |
 
 ## How the verticals stand on each other
 

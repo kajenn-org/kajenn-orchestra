@@ -3,7 +3,7 @@
 **Version**: 0.1 · **Last Updated**: 2026-08-24 · **Status**: 🔴 DA REVISIONARE
 
 The world that hosts a single-page site with live server-side state, standing on
-the machine of [10_server](../10_server/README.md). A stateless front takes the request, an
+the machine of [10_server](https://github.com/kajenn-org/kajenn/blob/main/internals/10_server/README.md). A stateless front takes the request, an
 orchestration chain places every user in one process and keeps all his pages
 there, and the hosted site's own data plane lives in its bridge, attached through
 named seams. The last entry states the contract the hosted site implements, so
