@@ -41,3 +41,15 @@ The Orchestra distinction is the three gold curves and the second wordmark line.
 ## Applying the shared theme to orchestration
 
 Keep navigation contextual: load overview → worker → details → registries, logs or terminal for the same target. Use shared states for healthy, warning, error, running and unreachable. A missing metric is not zero; show units and observation time. When configuration changes affect multiple workers, display individual results and partial outcomes. No additional decorative colors are assigned to workers merely to distinguish them.
+
+## Light and dark backgrounds
+
+The root README uses `<picture>` with `prefers-color-scheme: dark` to select
+[`kajenn-orchestra-logo-dark.png`](kajenn-orchestra-logo-dark.png). The existing
+[`kajenn-orchestra-logo.png`](kajenn-orchestra-logo.png) remains the light-mode fallback.
+
+The dark variant uses light lettering on an opaque charcoal background intended
+for GitHub's default dark theme. It is not a transparent export: other dark themes
+may show a visible rectangular background. These raster variants share the same
+1145 × 1374 canvas; they are visually matched, not pixel-identical masters.
+The standalone symbol asset is unchanged.
