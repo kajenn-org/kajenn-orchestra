@@ -1,29 +1,28 @@
-# How-to Guides
-
-> **Status:** Draft; implementation checked against the development source on 2026-09-08.
+# Guides
 
 Task-focused recipes for the worker pool `kajenn-orchestra` adds to a `kajenn`
-server. The server itself, its routed applications and its configuration recipe
-are documented in `kajenn`.
+server. The server itself, its mounted applications and its configuration recipe
+are documented in
+[kajenn](https://kajenn.readthedocs.io/en/latest/).
 
 ```{toctree}
 :hidden:
 
 multiworker-spa
+hosting-an-application
+mobility
+configuration-profiles
+console
 ```
 
-## The guides
-
-- **[Multiworker SPA](multiworker-spa.md)** — package boundary, hosted applications and global store.
-
-## How each guide is structured
-
-Capability recipes use the following sections where applicable:
-
-1. **What it does** — the capability in one or two sentences.
-2. **When to use it** — the situation that calls for it.
-3. **Setup** — the constructor kwargs or base class you need in place.
-4. **Minimal snippet** — the smallest copy-pasteable example that works.
-5. **How to verify it** — a concrete check (a `curl`, a request, an observed
-   effect) that proves it is working.
-6. **Gotchas** — the sharp edges worth knowing before you hit them.
+- **[The multiworker SPA](multiworker-spa.md)** — the package boundary, the
+  identity a request carries, and the global store.
+- **[Hosting an application](hosting-an-application.md)** — the `SpaWorker`
+  subclass contract, the `asgi_app` and `wsgi_app` seams, and what a hosted
+  request receives.
+- **[Freeze and reassignment](mobility.md)** — the one path a user takes between
+  two processes, what orders it, and what a browser sees.
+- **[Configuration profiles](configuration-profiles.md)** — the `_sysop`
+  archive, how a profile is validated, and how it is applied at runtime.
+- **[Watching a pool](console.md)** — the inspector section and the MCP console,
+  and why mounting is the only gate either has.
