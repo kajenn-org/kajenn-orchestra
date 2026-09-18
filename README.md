@@ -1,5 +1,9 @@
 # kajenn-orchestra
 
+<p align="center">
+  <img src="assets/branding/kajenn-orchestra-logo.png" alt="kajenn orchestra" width="200">
+</p>
+
 **Status**: Alpha · version 0.1.0.
 
 Orchestration for [kajenn](https://github.com/kajenn-org/kajenn): the SPA front
