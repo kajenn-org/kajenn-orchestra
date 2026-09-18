@@ -23,4 +23,4 @@ Claim anchors: [`eval`](../../../src/kajenn_orchestra/spa_console.py#L64), [`Spa
 
 - [src/kajenn_orchestra/spa_console.py](../../../src/kajenn_orchestra/spa_console.py)
 - [src/kajenn_orchestra/orchestration/spa_commander.py](../../../src/kajenn_orchestra/orchestration/spa_commander.py)
-- [tests/spa/orchestration/test_orchestration_console.py](../../../tests/spa/orchestration/test_orchestration_console.py)
+- [tests/orchestration/test_orchestration_console.py](../../../tests/orchestration/test_orchestration_console.py)

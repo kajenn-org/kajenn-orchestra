@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kajenn-orchestra"
-version = "0.0.0"
+version = "0.1.0"
 description = "Orchestration for kajenn: SPA application, worker pool, sticky routing, freeze and reassignment"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["asgi", "web", "async", "http", "server"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
@@ -26,24 +26,68 @@ classifiers = [
     "Framework :: AsyncIO",
 ]
 
-# 0.0.0 reserves the name on PyPI. Dependencies arrive with 0.1.0.
-dependencies = []
+dependencies = [
+    "kajenn>=0.1.0",
+    # Imported by name inside src/kajenn_orchestra, so declared here: kajenn
+    # installs them too, but a package depends on what it imports and not on
+    # what its own dependency happens to bring along.
+    "genro-bag>=0.22.0",
+    "genro-builders>=0.23.0",
+    "genro-toolbox>=0.14.0",
+    "genro-tytx>=0.15.0",
+    "genro-routes>=0.30.0",
+    "psutil>=6.0",
+]
 
 [project.optional-dependencies]
-test = ["pytest>=7.0", "pytest-cov>=4.0", "pytest-asyncio>=0.23"]
-dev = ["kajenn-orchestra[test]", "ruff>=0.1.0", "mypy>=1.0"]
-docs = ["sphinx>=7.0", "sphinx-rtd-theme>=2.0", "sphinx-autodoc-typehints>=2.0", "myst-parser>=2.0"]
-# The reader for the internals/ dossier (mkdocs.yml at the repo root).
-internals = ["mkdocs>=1.6", "mkdocs-material>=9.6"]
+test = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-asyncio>=0.23",
+    # The worker payload tests drive the TYTX msgpack transport branch:
+    # without this extra that coverage silently vanishes in a clean env.
+    "genro-tytx[msgpack]>=0.15.0",
+    # tests/boundary/test_opaque_spa_process.py drives a real server from
+    # outside its process, over HTTP and over websocket.
+    "httpx>=0.27",
+    "websockets>=13.0",
+    # tests/docs/test_internals_reader.py builds the internals dossier with
+    # mkdocs: the suite needs the reader, not only the developer who reads.
+    "kajenn-orchestra[internals]",
+]
+dev = [
+    "kajenn-orchestra[test]",
+    "ruff>=0.1.0",
+    "mypy>=1.0",
+]
+internals = [
+    # The reader for the internals/ dossier (mkdocs.yml at the repo root).
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.6",
+]
+docs = [
+    "sphinx>=7.0",
+    "sphinx-rtd-theme>=2.0",
+    "sphinx-autodoc-typehints>=2.0",
+    "myst-parser>=2.0",
+]
 
 [project.urls]
 Homepage = "https://kajenn.org"
 Repository = "https://github.com/kajenn-org/kajenn-orchestra"
 "Bug Tracker" = "https://github.com/kajenn-org/kajenn-orchestra/issues"
 
+# Development only: the sibling checkout is the kajenn a developer edits while
+# working on orchestra. CI ignores this table and installs kajenn from git
+# (.github/workflows/tests.yml); a release resolves it from PyPI.
+[tool.uv.sources]
+kajenn = { path = "../kajenn", editable = true }
+
 [tool.hatch.build.targets.wheel]
 packages = [
-    "src/kajenn_orchestra",]
+    "src/kajenn_orchestra",
+]
+exclude = ["**/tests/"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -58,13 +102,36 @@ asyncio_default_fixture_loop_scope = "function"
 line-length = 100
 target-version = "py311"
 
-# Frozen default rule set, as in genro-asgi: adopting a rule is a per-rule decision.
+# Freeze the historical default rule set: ruff 0.16 widened its defaults
+# (isort, naming, RUF/UP families), some of which collide with deliberate
+# idioms here. Adopting new rules is a per-rule decision, not a side effect
+# of whatever version CI happens to install.
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F"]
 
-# mypy is a non-blocking advisor: non-strict, findings reviewed but never gating.
+# Fixtures imported from a sibling test module shadow their own name in every
+# test signature that requests them — the pytest idiom ruff reads as F811.
+[tool.ruff.lint.per-file-ignores]
+"tests/orchestration/test_orchestration_cpu_growth.py" = ["F811"]
+"tests/orchestration/test_orchestration_cpu_offload.py" = ["F811"]
+"tests/orchestration/test_orchestration_cpu_temperature_meter.py" = ["F811"]
+"tests/orchestration/test_orchestration_policy_delegation.py" = ["F811"]
+"tests/orchestration/test_orchestration_placement_interval.py" = ["F811"]
+"tests/orchestration/test_orchestration_no_speculative_birth.py" = ["F811"]
+"tests/orchestration/test_orchestration_no_reception_reserve.py" = ["F811"]
+
+# mypy is a non-blocking advisor (parent policy): non-strict, findings
+# reviewed but never gating.
 [tool.mypy]
 python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
-exclude = ["tests/"]
+exclude = ["tests/", ".*/tests/"]
+
+# @every marks its wrapper with the declared cadence (every_beats) and reads it
+# back at call time, so a test can move a cadence without touching the caller.
+# functools.wraps returns a _Wrapped mypy models as attribute-less; the pattern is
+# the ordinary function-attribute one, and only that code is silenced here.
+[[tool.mypy.overrides]]
+module = "kajenn_orchestra.orchestration.beats"
+disable_error_code = ["attr-defined"]

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orchestration profiles</title>
+  <style>
+    :root { color-scheme: light dark; font: 15px/1.45 system-ui, sans-serif; }
+    body { margin: 0; background: Canvas; color: CanvasText; }
+    main { max-width: 1050px; margin: 0 auto; padding: 28px; }
+    header, .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    header { justify-content: space-between; margin-bottom: 20px; }
+    h1 { margin: 0; font-size: 1.45rem; }
+    .layout { display: grid; grid-template-columns: 250px 1fr; gap: 18px; }
+    aside, section { border: 1px solid color-mix(in srgb, CanvasText 20%, transparent); border-radius: 9px; padding: 14px; }
+    #profiles { list-style: none; margin: 10px 0 0; padding: 0; }
+    #profiles button { width: 100%; margin: 2px 0; text-align: left; }
+    input, button, textarea { box-sizing: border-box; font: inherit; }
+    input { min-width: 230px; padding: 7px 9px; }
+    button { padding: 7px 11px; cursor: pointer; }
+    textarea { width: 100%; min-height: 520px; margin-top: 12px; padding: 12px; resize: vertical; font-family: ui-monospace, monospace; tab-size: 2; }
+    #status { min-height: 1.5em; margin: 10px 0 0; color: color-mix(in srgb, CanvasText 70%, transparent); }
+    .danger { color: #c23b3b; }
+    @media (max-width: 720px) { .layout { grid-template-columns: 1fr; } textarea { min-height: 360px; } }
+  </style>
+</head>
+<body>
+<main>
+  <header><h1>Orchestration profiles</h1><button id="refresh">Refresh</button></header>
+  <div class="layout">
+    <aside><strong>Saved profiles</strong><ul id="profiles"></ul></aside>
+    <section>
+      <div class="toolbar">
+        <input id="name" maxlength="69" placeholder="Profile name" autocomplete="off">
+        <button id="new">New</button>
+        <button id="save">Save</button>
+        <button id="delete" class="danger">Delete</button>
+      </div>
+      <textarea id="json" spellcheck="false">{}</textarea>
+      <p id="status" role="status"></p>
+    </section>
+  </div>
+</main>
+<script>
+  // The REST calls below are relative URLs: they only resolve against the
+  // trailing-slash form of the page address.
+  if (!location.pathname.endsWith('/')) location.replace(location.pathname + '/' + location.search);
+  const byId = id => document.getElementById(id);
+  const name = byId('name');
+  const editor = byId('json');
+  const status = byId('status');
+  const endpoint = action => `${action}?name=${encodeURIComponent(name.value.trim())}`;
+
+  async function request(url, options) {
+    const response = await fetch(url, options);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    return data;
+  }
+  function report(message, error = false) {
+    status.textContent = message;
+    status.classList.toggle('danger', error);
+  }
+  async function refresh() {
+    try {
+      const data = await request('profiles');
+      const list = byId('profiles');
+      list.replaceChildren(...data.profiles.map(profile => {
+        const item = document.createElement('li');
+        const button = document.createElement('button');
+        button.textContent = profile.name;
+        button.onclick = () => load(profile.name);
+        item.append(button);
+        return item;
+      }));
+      report(`${data.profiles.length} profile(s)`);
+    } catch (error) { report(error.message, true); }
+  }
+  async function load(profileName) {
+    name.value = profileName;
+    try {
+      const data = await request(endpoint('read'));
+      editor.value = JSON.stringify(data.profile, null, 2);
+      report(`Loaded ${data.name}`);
+    } catch (error) { report(error.message, true); }
+  }
+  byId('new').onclick = () => { name.value = ''; editor.value = '{}'; name.focus(); report('New profile'); };
+  byId('refresh').onclick = refresh;
+  byId('save').onclick = async () => {
+    try {
+      const profile = JSON.parse(editor.value);
+      if (!profile || Array.isArray(profile) || typeof profile !== 'object') throw new Error('Profile must be a JSON object');
+      const data = await request(endpoint('save'), {
+        method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(profile)
+      });
+      name.value = data.name;
+      editor.value = JSON.stringify(data.profile, null, 2);
+      await refresh();
+      report(`Saved ${data.name}`);
+    } catch (error) { report(error.message, true); }
+  };
+  byId('delete').onclick = async () => {
+    if (!name.value.trim() || !confirm(`Delete ${name.value.trim()}?`)) return;
+    try {
+      const data = await request(endpoint('delete'), {method: 'DELETE'});
+      name.value = ''; editor.value = '{}'; await refresh(); report(`Deleted ${data.name}`);
+    } catch (error) { report(error.message, true); }
+  };
+  refresh();
+</script>
+</body>
+</html>

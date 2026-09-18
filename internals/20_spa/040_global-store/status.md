@@ -25,8 +25,8 @@ Claim anchors: [`SpaCommander`](../../../src/kajenn_orchestra/orchestration/spa_
 - [Global store client and lease](../../../src/kajenn_orchestra/global_store.py)
 - [Commander store operations](../../../src/kajenn_orchestra/orchestration/spa_commander.py)
 - [Worker death cleanup](../../../src/kajenn_orchestra/orchestration/worker_handler.py)
-- [Dictionary and lease contracts](../../../tests/spa/orchestration/test_contract_global_store_dict.py)
-- [Client contracts](../../../tests/spa/test_spa_global_store.py)
+- [Dictionary and lease contracts](../../../tests/orchestration/test_contract_global_store_dict.py)
+- [Client contracts](../../../tests/test_spa_global_store.py)
 
 Simple client get/set/delete calls run from a worker pool thread; leases also
 support `async with`. Nested access from the context holding a lease is refused.

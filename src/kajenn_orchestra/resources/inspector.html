@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>kajenn inspector</title>
+<!--
+  The SPA pool inspector.
+
+  Two addresses, both siblings of this page: ./census (the whole pool as JSON)
+  and ./stream (the observation events, as SSE). The page holds NO merge logic —
+  any observation event debounces a full refetch of ./census and a full
+  re-render, so what is on screen is always ONE reading, never a reading plus
+  guesses. The event log shows the last 50 raw events for the same reason: a
+  human watching a collaudo wants to see what the pool said, unedited.
+
+  Stop freezes the view: the EventSource is closed, nothing refetches, and the
+  timestamp of the last reading stays visible. Resume reopens and refetches.
+
+  Zero external assets: all CSS and JS inline, same-origin fetch + EventSource.
+-->
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b0f18;
+    --surface: rgba(255, 255, 255, 0.028);
+    --surface-2: rgba(255, 255, 255, 0.06);
+    --border: rgba(148, 170, 210, 0.16);
+    --border-soft: rgba(148, 170, 210, 0.09);
+    --ink: #e9eef7;
+    --muted: #8d99b2;
+    --faint: #5c6880;
+    --accent: #45b8f5;
+    --good: #3ecf8e;
+    --warn: #f5b942;
+    --crit: #f4726f;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { background: var(--bg); }
+  body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 14px; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 20px 24px 48px; }
+
+  header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 4px 2px 18px; }
+  .wordmark { font-family: var(--mono); font-size: 1.2rem; font-weight: 700; letter-spacing: -0.02em; }
+  .wordmark b { color: var(--accent); }
+  #last-read { margin-left: auto; font-family: var(--mono); font-size: 0.74rem; color: var(--muted); }
+  #toggle-stream {
+    appearance: none; cursor: pointer; font-family: var(--mono); font-size: 0.76rem;
+    background: var(--surface-2); color: var(--ink); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 14px;
+  }
+  #toggle-stream:hover { border-color: var(--accent); }
+  #toggle-stream.paused { color: var(--warn); border-color: var(--warn); }
+
+  .section-label {
+    font-size: 0.67rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--faint); margin: 24px 0 10px; display: flex; align-items: center; gap: 10px;
+  }
+  .section-label::after { content: ""; flex: 1; height: 1px; background: var(--border-soft); }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .card + .card { margin-top: 12px; }
+  .card h3 { font-family: var(--mono); font-size: 0.9rem; font-weight: 700; margin-bottom: 10px; }
+  .card h3 .sub { color: var(--faint); font-weight: 400; font-size: 0.76rem; margin-left: 8px; }
+
+  .kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 4px 18px; }
+  .kv div { display: flex; gap: 8px; font-family: var(--mono); font-size: 0.76rem; }
+  .kv .k { color: var(--faint); }
+  .kv .v { color: var(--ink); }
+
+  ul.tree { list-style: none; font-family: var(--mono); font-size: 0.78rem; }
+  ul.tree ul { list-style: none; margin-left: 18px; border-left: 1px solid var(--border-soft); padding-left: 12px; }
+  ul.tree li { padding: 2px 0; }
+  .node-user { color: var(--accent); }
+  .node-conn { color: var(--ink); }
+  .node-page { color: var(--muted); }
+  .fields { color: var(--faint); margin-left: 8px; }
+  .empty { color: var(--faint); font-family: var(--mono); font-size: 0.78rem; }
+  .err { color: var(--crit); font-family: var(--mono); font-size: 0.78rem; }
+
+  #event-log { margin-top: 24px; }
+  #event-log ol { list-style: none; font-family: var(--mono); font-size: 0.73rem; max-height: 260px; overflow-y: auto; }
+  #event-log li { padding: 2px 0; color: var(--muted); border-bottom: 1px solid var(--border-soft); }
+  #event-log .kind { color: var(--good); }
+  #event-log .source { color: var(--faint); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="wordmark">genro<b>-asgi</b> inspector</div>
+    <span id="last-read">never read</span>
+    <button id="toggle-stream">stop</button>
+  </header>
+
+  <section id="commander-panel"></section>
+  <section id="worker-grid"></section>
+  <aside id="event-log"></aside>
+</div>
+
+<script>
+/* ---------- the two endpoints, siblings of this page ---------- */
+const baseUrl = window.location.pathname.replace(/\/$/, "").replace(/\/page$/, "");
+const censusUrl = baseUrl + "/census";
+const streamUrl = baseUrl + "/stream";
+
+/* The whole client state: one census, a paused flag, the raw event tail. */
+const state = { census: {}, paused: false, events: [], source: null, timer: null };
+
+const el = (id) => document.getElementById(id);
+
+function text(node, value) { node.textContent = value === undefined ? "" : String(value); return node; }
+
+function make(tag, className, value) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (value !== undefined) text(node, value);
+  return node;
+}
+
+function keyValues(pairs) {
+  const grid = make("div", "kv");
+  for (const [key, value] of pairs) {
+    const row = make("div");
+    row.appendChild(make("span", "k", key));
+    row.appendChild(make("span", "v", value));
+    grid.appendChild(row);
+  }
+  return grid;
+}
+
+
+/* ---------- the commander, one card per SPA front ---------- */
+function renderCommander() {
+  const target = el("commander-panel");
+  target.replaceChildren(make("div", "section-label", "commander"));
+  const codes = Object.keys(state.census);
+  if (!codes.length) {
+    target.appendChild(make("div", "empty", "no SPA front mounted"));
+    return;
+  }
+  for (const code of codes) {
+    const pool = state.census[code];
+    const card = make("div", "card");
+    const title = make("h3", null, code);
+    title.appendChild(make("span", "sub", "default group: " + pool.default_group));
+    card.appendChild(title);
+    card.appendChild(keyValues([
+      ["users", Object.keys(pool.user_map).length],
+      ["connections", Object.keys(pool.connection_user_map).length],
+      ["pages", Object.keys(pool.page_connection_map).length],
+      ...Object.entries(pool.counters).map(([name, value]) => [name, value]),
+    ]));
+    for (const [name, group] of Object.entries(pool.groups)) {
+      const groupCard = make("div", "card");
+      const groupTitle = make("h3", null, "group " + name);
+      groupTitle.appendChild(make("span", "sub", group.living_workers.join(", ") || "no living worker"));
+      groupCard.appendChild(groupTitle);
+      groupCard.appendChild(keyValues([
+        ["memory occupied %", group.memory_occupied_percent],
+        ["worker max number", group.worker_max_number],
+        ["placed users", Object.keys(group.user_worker_map).length],
+        ...Object.entries(group.workers).map(([worker, shape]) =>
+          [worker, shape.state + " · mem " + shape.memory_occupancy_percent + "% · cpu " + shape.cpu_temperature_percent + "%"]),
+      ]));
+      card.appendChild(groupCard);
+    }
+    target.appendChild(card);
+  }
+}
+
+/* ---------- one row per worker: the tree, then its own numbers ---------- */
+function fieldsOf(item, names) {
+  return names
+    .filter((name) => item[name] !== undefined && item[name] !== null)
+    .map((name) => name + "=" + item[name])
+    .join(" ");
+}
+
+function workerTree(worker) {
+  const tree = make("ul", "tree");
+  const connections = worker.connection_register;
+  const pages = worker.page_register;
+  for (const user of Object.keys(worker.user_register).sort()) {
+    const item = worker.user_register[user];
+    const userNode = make("li");
+    userNode.appendChild(make("span", "node-user", user));
+    userNode.appendChild(make("span", "fields", fieldsOf(item, ["state", "last_user_ts", "last_rpc_ts"])));
+    const connectionList = make("ul");
+    for (const cid of Object.keys(connections).sort()) {
+      if (connections[cid].user !== user) continue;
+      const connectionNode = make("li");
+      connectionNode.appendChild(make("span", "node-conn", cid));
+      const pageList = make("ul");
+      for (const pageId of Object.keys(pages).sort()) {
+        if (pages[pageId].connection_id !== cid) continue;
+        const pageNode = make("li");
+        pageNode.appendChild(make("span", "node-page", pageId));
+        pageNode.appendChild(make("span", "fields", fieldsOf(pages[pageId], ["last_user_ts"])));
+        pageList.appendChild(pageNode);
+      }
+      if (pageList.childElementCount) connectionNode.appendChild(pageList);
+      connectionList.appendChild(connectionNode);
+    }
+    if (connectionList.childElementCount) userNode.appendChild(connectionList);
+    tree.appendChild(userNode);
+  }
+  return tree.childElementCount ? tree : make("div", "empty", "no user in this worker");
+}
+
+function renderWorkers() {
+  const target = el("worker-grid");
+  target.replaceChildren(make("div", "section-label", "workers"));
+  let any = false;
+  for (const [code, pool] of Object.entries(state.census)) {
+    for (const [name, worker] of Object.entries(pool.workers)) {
+      any = true;
+      const card = make("div", "card");
+      const title = make("h3", null, name);
+      title.appendChild(make("span", "sub", code + (worker.pid ? " · pid " + worker.pid : "")));
+      card.appendChild(title);
+      if (worker.error) {
+        card.appendChild(make("div", "err", worker.error));
+        target.appendChild(card);
+        continue;
+      }
+      card.appendChild(workerTree(worker));
+      card.appendChild(keyValues([
+        ["cookies mapped", Object.keys(worker.cid_connection_map).length],
+      ]));
+      target.appendChild(card);
+    }
+  }
+  if (!any) target.appendChild(make("div", "empty", "no living worker"));
+}
+
+function renderEvents() {
+  const target = el("event-log");
+  target.replaceChildren(make("div", "section-label", "events (last 50)"));
+  const list = make("ol");
+  for (const event of state.events) {
+    const row = make("li");
+    row.appendChild(make("span", "kind", event.kind || "?"));
+    row.appendChild(make("span", "source", " " + (event.source || "?") + " "));
+    row.appendChild(make("span", null, JSON.stringify(event.data || {})));
+    list.appendChild(row);
+  }
+  if (!state.events.length) list.appendChild(make("li", "empty", "nothing reported yet"));
+  target.appendChild(list);
+}
+
+function render() {
+  renderCommander();
+  renderWorkers();
+  renderEvents();
+}
+
+/* ---------- the reading: one fetch, one full re-render ---------- */
+async function readCensus() {
+  if (state.paused) return;
+  try {
+    const response = await fetch(censusUrl);
+    state.census = await response.json();
+    text(el("last-read"), "read at " + new Date().toLocaleTimeString());
+  } catch (error) {
+    text(el("last-read"), "read failed: " + error.message);
+  }
+  render();
+}
+
+function scheduleRead() {
+  if (state.timer) clearTimeout(state.timer);
+  state.timer = setTimeout(() => { state.timer = null; readCensus(); }, 200);
+}
+
+function recordEvent(event) {
+  state.events.unshift(event);
+  state.events = state.events.slice(0, 50);
+}
+
+function openStream() {
+  state.source = new EventSource(streamUrl);
+  state.source.addEventListener("census", (message) => {
+    state.census = JSON.parse(message.data);
+    text(el("last-read"), "read at " + new Date().toLocaleTimeString());
+    render();
+  });
+  state.source.addEventListener("observation", (message) => {
+    recordEvent(JSON.parse(message.data));
+    renderEvents();
+    scheduleRead();
+  });
+}
+
+function toggleStream() {
+  const button = el("toggle-stream");
+  if (state.paused) {
+    state.paused = false;
+    button.classList.remove("paused");
+    text(button, "stop");
+    openStream();
+    readCensus();
+    return;
+  }
+  state.paused = true;
+  button.classList.add("paused");
+  text(button, "resume");
+  if (state.source) { state.source.close(); state.source = null; }
+  if (state.timer) { clearTimeout(state.timer); state.timer = null; }
+}
+
+el("toggle-stream").addEventListener("click", toggleStream);
+render();
+openStream();
+</script>
+</body>
+</html>

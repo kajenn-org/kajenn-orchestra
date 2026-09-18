@@ -4,21 +4,26 @@
 # Install: cp hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
 #
 # Runs:
-#   1. ruff check - Linting           (BLOCKS the commit on failure)
-#   2. mypy       - Type checking      (ADVISORY only, never blocks)
+#   1. ruff check      - Linting                  (BLOCKS the commit on failure)
+#   2. mypy            - Type checking            (ADVISORY only, never blocks)
+#   3. import_graph.py - kajenn import allowlist  (BLOCKS the commit on failure)
 #
 # Policy: mypy is a non-blocking advisor. Type errors are printed for
 # awareness but do not stop the commit. The dynamic metaprogramming of the
 # builders produces type-boundary errors that are silenced per-category in
 # pyproject.toml ([[tool.mypy.overrides]]), never with casts in the code.
 # See the central CLAUDE.md "Git Hooks" / "Development Workflow" sections.
+#
+# The import check reads kajenn's sources from the sibling checkout
+# ../kajenn/src/kajenn. Without that checkout the check is skipped with a
+# message: CI runs it on a tree that has both repos.
 
 set -e
 
 echo "Running pre-commit checks..."
 
 # Run ruff (blocking)
-echo "  [1/2] Running ruff..."
+echo "  [1/3] Running ruff..."
 if ! ruff check src/; then
     echo "  ❌ FAILED: ruff found issues"
     echo "  Run 'ruff check src/' to see details"
@@ -27,7 +32,7 @@ fi
 echo "  ✅ PASSED: ruff"
 
 # Run mypy (advisory, non-blocking)
-echo "  [2/2] Running mypy (advisory)..."
+echo "  [2/3] Running mypy (advisory)..."
 if mypy src/ --ignore-missing-imports; then
     echo "  ✅ mypy: no issues"
 else
@@ -36,4 +41,22 @@ else
     echo "     in code; use per-category overrides in pyproject.toml if needed."
 fi
 
-echo "✅ Pre-commit checks done (ruff passed; mypy advisory)."
+# Run the import graph against the declared kajenn surface (blocking)
+echo "  [3/3] Running import_graph.py..."
+if [ ! -d "../kajenn/src/kajenn" ]; then
+    echo "  ⏭️  SKIPPED: ../kajenn/src/kajenn not found — clone kajenn beside this"
+    echo "     repository to check kajenn_orchestra against kajenn_imports.txt"
+else
+    if ! python3 tools/import_graph.py \
+        --package kajenn_orchestra=src/kajenn_orchestra \
+        --package kajenn=../kajenn/src/kajenn \
+        --allowlist "kajenn_orchestra->kajenn:kajenn_imports.txt"; then
+        echo "  ❌ FAILED: an import of kajenn is outside kajenn_imports.txt"
+        echo "  Widening that list widens the public surface of kajenn: it is a"
+        echo "  decision for the owner, not a side effect of this change."
+        exit 1
+    fi
+    echo "  ✅ PASSED: import_graph"
+fi
+
+echo "✅ Pre-commit checks done (ruff and import_graph passed; mypy advisory)."

@@ -49,5 +49,5 @@ Claim anchors: [`WsxEnvelope`](https://github.com/kajenn-org/kajenn/blob/main/sr
 - [tests/core/test_channel.py](https://github.com/kajenn-org/kajenn/blob/main/tests/core/test_channel.py)
 - [tests/core/test_channel_hub.py](https://github.com/kajenn-org/kajenn/blob/main/tests/core/test_channel_hub.py)
 - [tests/core/test_channel_local.py](https://github.com/kajenn-org/kajenn/blob/main/tests/core/test_channel_local.py)
-- [tests/spa/orchestration/test_orchestration_worker_connector.py](../../../tests/spa/orchestration/test_orchestration_worker_connector.py)
-- [tests/spa/orchestration/test_contract_phase7_worker_call_lane.py](../../../tests/spa/orchestration/test_contract_phase7_worker_call_lane.py)
+- [tests/orchestration/test_orchestration_worker_connector.py](../../../tests/orchestration/test_orchestration_worker_connector.py)
+- [tests/orchestration/test_contract_phase7_worker_call_lane.py](../../../tests/orchestration/test_contract_phase7_worker_call_lane.py)

@@ -18,4 +18,4 @@ import kajenn_orchestra
 
 
 def test_version_is_exposed():
-    assert kajenn_orchestra.__version__ == "0.0.0"
+    assert kajenn_orchestra.__version__ == "0.1.0"
