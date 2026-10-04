@@ -37,8 +37,8 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "sphinx.ext.intersphinx",
-    "sphinx_autodoc_typehints",
     "myst_parser",
+    "sphinxcontrib.mermaid",
 ]
 
 templates_path = ["_templates"]
@@ -47,10 +47,15 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 # MyST: the guides and narrative pages are Markdown; the toctree skeleton is rst.
 source_suffix = {".rst": "restructuredtext", ".md": "markdown"}
 myst_heading_anchors = 3
+# ``:::{admonition}`` is a colon fence; without this extension MyST prints the
+# fence as text instead of building the directive.
+myst_enable_extensions = ["colon_fence"]
+# A ```mermaid fence in Markdown is handed to the ``mermaid`` directive.
+myst_fence_as_directive = ["mermaid"]
 
 html_theme = "sphinx_rtd_theme"
 html_static_path = ["_static"]
-html_css_files = ["diagrams.css", "branding.css"]
+html_css_files = ["branding.css", "readability.css"]
 html_logo = "_static/branding/kajenn-orchestra-mark.png"
 
 intersphinx_mapping = {
@@ -63,6 +68,12 @@ napoleon_google_docstring = True
 napoleon_numpy_docstring = False
 napoleon_include_init_with_doc = True
 
+# Autodoc renders the annotations into the description itself. The
+# ``sphinx-autodoc-typehints`` extension is deliberately absent: it injects its
+# ``:type:``/``:rtype:`` fields in the wrong place when a docstring closes with a
+# narrative paragraph after its ``Args:``/``Raises:`` block, which is this
+# codebase's ordinary shape, and the misplaced field breaks the field list.
+
 # Autodoc: document members in source order; keep the ``__init__`` convention
 # (kwargs live in the class docstring) readable.
 autodoc_member_order = "bysource"
@@ -72,3 +83,25 @@ autodoc_default_options = {
     "members": "",
     "show-inheritance": True,
 }
+
+# Compact diagrams share the documentation palette and use readable labels.
+mermaid_light_theme = "base"
+mermaid_dark_theme = "base"
+mermaid_init_config = {
+    "startOnLoad": False,
+    "theme": "base",
+    "themeVariables": {
+        "fontFamily": "Arial, sans-serif",
+        "fontSize": "16px",
+        "primaryColor": "#FFF8E8",
+        "primaryTextColor": "#24262B",
+        "primaryBorderColor": "#AD7410",
+        "lineColor": "#526174",
+        "secondaryColor": "#EDF1F5",
+        "tertiaryColor": "#FFFFFF",
+    },
+    "flowchart": {"nodeSpacing": 24, "rankSpacing": 28, "useMaxWidth": False},
+}
+
+mermaid_width = "auto"
+mermaid_height = "auto"

@@ -111,7 +111,7 @@ class SpaConsoleMcpApplication(McpApplication):
     not — mounting is the gate, and a production recipe never mounts it.
     """
 
-    mcp_name = "genro-spa-console"
+    mcp_name = "kajenn-spa-console"
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(routing_class=SpaConsole(self), **kwargs)

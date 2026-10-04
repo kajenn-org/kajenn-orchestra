@@ -1,31 +1,41 @@
-Multiworker SPA integration
-===========================
+Modules of ``kajenn_orchestra``
+===============================
 
-These are integration surfaces of the separate ``kajenn_orchestra``
-package. See :doc:`../guides/multiworker-spa` before configuring a pool.
+Every module of the package, generated from its own docstrings. The module
+docstring states what the module does and why; the class and method docstrings
+state the contract.
 
-Front and worker
-----------------
+The server core and the base server application are documented in ``kajenn``.
 
-.. autoclass:: kajenn_orchestra.spa_app.SpaApplication
-   :members: commander, handshake_cookie
+Private helpers — the names starting with an underscore — are implementation and
+not an API guarantee.
 
-.. autoclass:: kajenn_orchestra.orchestration.spa_worker.SpaWorker
-   :members: hosted_app_seam, global_store, send_message, run_sync, build_request_slot, on_request_served
+.. toctree::
+   :maxdepth: 1
 
-Hosted application adapters
----------------------------
-
-.. automodule:: kajenn_orchestra.environ
-   :members: AsgiSeam, WsgiSeam
-
-Global store
-------------
-
-.. autoclass:: kajenn_orchestra.global_store.GlobalStoreClient
-   :members: get, set, delete, for_update
-
-.. autoclass:: kajenn_orchestra.global_store.GlobalStoreLease
-   :members: abort
-
-.. autoexception:: kajenn_orchestra.global_store.GlobalStoreCommitUnconfirmed
+   modules/package
+   modules/orchestration
+   modules/spa_app
+   modules/spa_console
+   modules/inspector_section
+   modules/configuration_profiles
+   modules/orchestration_profile_store
+   modules/global_store
+   modules/environ
+   modules/register
+   modules/register_registry
+   modules/register_row
+   modules/orchestration_spa_commander
+   modules/orchestration_group_handler
+   modules/orchestration_worker_handler
+   modules/orchestration_spa_worker
+   modules/orchestration_group_policy
+   modules/orchestration_freeze_handler
+   modules/orchestration_envelope_handler
+   modules/orchestration_worker_connector
+   modules/orchestration_worker_entry
+   modules/orchestration_worker_process
+   modules/orchestration_template_connector
+   modules/orchestration_template_entry
+   modules/orchestration_beats
+   modules/orchestration_exceptions
