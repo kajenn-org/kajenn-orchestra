@@ -6,7 +6,7 @@
 ## Project-Specific Context
 
 ### Current Status
-- Development Status: Alpha — Has Implementation: Yes
+- Development Status: Beta — Has Implementation: Yes
 - Version 0.1.0, migrated from genro-asgi 0.46.3 by the phases in
   `../kajenn-meta/MIGRATION_PLAN.md`.
 

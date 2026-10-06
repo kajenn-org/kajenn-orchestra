@@ -40,8 +40,8 @@ import logging
 from pathlib import Path
 from typing import Any, Callable
 
-from kajenn.channel.control import ControlPayload
-from kajenn.channel.frame import REGISTER_METHOD, Frame, FrameStream
+from kajenn.kbus.control import ControlPayload
+from kajenn.kbus.frame import REGISTER_METHOD, Frame, FrameStream
 from kajenn.transport_limits import FrameTooLarge
 
 CALL_METHOD = "CALL"

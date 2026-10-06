@@ -57,7 +57,7 @@ from genro_routes import RoutingClass, route
 
 from tests.orchestration.frame_helpers import control_frame, read_control
 
-from kajenn.channel.frame import REGISTER_METHOD, REGISTER_PATH, Frame, FrameStream
+from kajenn.kbus.frame import REGISTER_METHOD, REGISTER_PATH, Frame, FrameStream
 from kajenn_orchestra.orchestration import FreezeHandler
 from kajenn_orchestra.orchestration.worker_connector import (
     CALL_METHOD,

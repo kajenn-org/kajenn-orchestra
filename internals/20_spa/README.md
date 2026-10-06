@@ -13,7 +13,7 @@ the core never learns the site's own logic.
 |---|---|
 | [010 spa-application](010_spa-application/README.md) | one stable door to the hosted site, no state in the door |
 | [020 orchestration](020_orchestration/README.md) | many users with live state, scaled across processes, never split |
-| [030 channel](030_channel/README.md) | the wire: frames, hub, the lane |
+| [030 KajennBus](030_channel/README.md) | the wire: frames, hub, the lane |
 | [040 global-store](040_global-store/README.md) | one shared state, safe read-modify-write |
 | [070 console](070_console/README.md) | ask a live pool the questions nobody predicted |
 | [080 bridge-contract](080_bridge-contract/README.md) | what genropy-asgi implements and consumes — generalized core, site logic in the bridge |

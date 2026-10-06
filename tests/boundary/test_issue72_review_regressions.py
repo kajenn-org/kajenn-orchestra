@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from kajenn.channel.control import ControlPayload
-from kajenn.channel.frame import Frame
-from kajenn.channel.hub import ChannelHub, ChannelMember
+from kajenn.kbus.control import ControlPayload
+from kajenn.kbus.frame import Frame
+from kajenn.kbus.hub import KajennBusHub, KajennBusMember
 from kajenn.exceptions import HTTPException
 from kajenn_orchestra.orchestration import SpaWorker, WorkerConnector
 
@@ -17,7 +17,7 @@ from kajenn_orchestra.orchestration import SpaWorker, WorkerConnector
 @pytest.mark.parametrize("info", [{"name": "bad", "pid": {}}, {"name": "bad", "pid": "x"},
                                   {"name": ["unhashable"], "pid": 1}])
 async def test_malformed_register_closes_stream_without_registering(info):
-    hub = ChannelHub(path="/tmp/issue72-review-unused.sock")
+    hub = KajennBusHub(path="/tmp/issue72-review-unused.sock")
     stream = SimpleNamespace(read=AsyncMock(return_value=Frame(
         method="REGISTER", path="/register", payload=ControlPayload().encode(info))), close=AsyncMock())
     assert await hub._register_connection(stream) is None
@@ -28,14 +28,14 @@ async def test_malformed_register_closes_stream_without_registering(info):
 @pytest.mark.parametrize("cancel", [False, True])
 @pytest.mark.parametrize("cleanup_error", [OSError("close failed"), asyncio.CancelledError("cleanup")])
 async def test_cleanup_failure_preserves_callers_timeout_or_cancellation(cancel, cleanup_error):
-    hub = ChannelHub(path="/tmp/issue72-review-unused.sock", max_pending_calls=1)
+    hub = KajennBusHub(path="/tmp/issue72-review-unused.sock", max_pending_calls=1)
     wrote = asyncio.Event()
 
     async def write(frame):
         wrote.set()
 
     stream = SimpleNamespace(write=write, close=AsyncMock(side_effect=cleanup_error))
-    member = ChannelMember(hub, "one", 1, stream)
+    member = KajennBusMember(hub, "one", 1, stream)
     hub._members["one"] = member
     hub._abandoned["old"] = (member, "/old")
     call = asyncio.create_task(hub.call_frame("one", Frame(method="CALL", path="/new"),

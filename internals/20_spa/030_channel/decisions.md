@@ -1,4 +1,4 @@
-# Channel — decisions
+# KajennBus — decisions
 
 **Version**: 0.3 · **Last Updated**: 2026-09-08 · **Status**: 🔴 DA REVISIONARE
 

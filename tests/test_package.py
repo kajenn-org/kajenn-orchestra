@@ -14,8 +14,12 @@
 
 """Contract: the distribution installs and exposes its version."""
 
+from importlib.metadata import version
+
 import kajenn_orchestra
 
 
 def test_version_is_exposed():
-    assert kajenn_orchestra.__version__ == "0.1.1"
+    # __version__ IS the installed distribution's version — never a literal
+    # that a release bump can leave behind.
+    assert kajenn_orchestra.__version__ == version("kajenn-orchestra")

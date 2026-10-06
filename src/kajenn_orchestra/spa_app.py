@@ -88,7 +88,7 @@ from genro_routes import RoutingClass, route
 
 from kajenn.asgi_endpoint import BufferedAsgiEndpoint
 from kajenn.application import ApplicationGrammar
-from kajenn.channel.frame import Frame
+from kajenn.kbus.frame import Frame
 from kajenn.http_record import HttpRecord
 from kajenn.transport_limits import FrameTooLarge, HttpBodyTooLarge, http_max_body_size
 from kajenn.config.handler import ConfigError
