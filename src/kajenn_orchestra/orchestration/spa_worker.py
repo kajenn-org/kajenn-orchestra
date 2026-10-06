@@ -265,10 +265,10 @@ import psutil
 from genro_routes import RoutingClass, route
 from genro_tytx import to_tytx
 
-from kajenn.channel.control import ControlPayload
+from kajenn.kbus.control import ControlPayload
 from kajenn.http_record import HttpRecord
 from kajenn.transport_limits import FrameTooLarge
-from kajenn.channel.frame import REGISTER_METHOD, REGISTER_PATH, Frame, FrameStream
+from kajenn.kbus.frame import REGISTER_METHOD, REGISTER_PATH, Frame, FrameStream
 from kajenn.exceptions import HTTPException
 from ..environ import AsgiSeam, WsgiSeam
 from ..global_store import (

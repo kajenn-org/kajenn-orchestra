@@ -1,8 +1,8 @@
 kajenn.application
 kajenn.applications.mcp
 kajenn.asgi_endpoint
-kajenn.channel.control
-kajenn.channel.frame
+kajenn.kbus.control
+kajenn.kbus.frame
 kajenn.config.handler
 kajenn.exceptions
 kajenn.http_record

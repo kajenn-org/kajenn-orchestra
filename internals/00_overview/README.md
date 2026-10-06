@@ -356,7 +356,7 @@ flowchart TB
 |---|---|
 | [010 spa-application](../20_spa/010_spa-application/README.md) | one stable door to the hosted site, no state in the door |
 | [020 orchestration](../20_spa/020_orchestration/README.md) | many users with live state, scaled across processes, never split |
-| [030 channel](../20_spa/030_channel/README.md) | the wire: frames, hub, the lane |
+| [030 KajennBus](../20_spa/030_channel/README.md) | the wire: frames, hub, the lane |
 | [040 global-store](../20_spa/040_global-store/README.md) | one shared state, safe read-modify-write |
 | [070 console](../20_spa/070_console/README.md) | ask a live pool the questions nobody predicted |
 | [080 bridge-contract](../20_spa/080_bridge-contract/README.md) | what genropy-asgi implements and consumes — generalized core, site logic in the bridge |

@@ -47,7 +47,7 @@ import pytest
 
 from kajenn_orchestra.spa_app import SPA_CONNECTION_ID_COOKIE
 from tests.orchestration.frame_helpers import call_endpoint, control_frame
-from kajenn.channel.frame import FrameStream
+from kajenn.kbus.frame import FrameStream
 from kajenn_orchestra.orchestration import (
     FreezeHandler,
     SpaWorker,

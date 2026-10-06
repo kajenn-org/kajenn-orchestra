@@ -77,7 +77,7 @@ import time
 
 from tests.orchestration.frame_helpers import call_endpoint, control_frame, read_control
 
-from kajenn.channel.frame import REGISTER_METHOD, REGISTER_PATH, Frame, FrameStream
+from kajenn.kbus.frame import REGISTER_METHOD, REGISTER_PATH, Frame, FrameStream
 
 
 async def live() -> None:

@@ -3,8 +3,8 @@
 import base64
 
 from kajenn.http_record import HttpRecord
-from kajenn.channel.control import ControlPayload
-from kajenn.channel.frame import Frame
+from kajenn.kbus.control import ControlPayload
+from kajenn.kbus.frame import Frame
 
 
 def control_frame(*, data=None, **fields):

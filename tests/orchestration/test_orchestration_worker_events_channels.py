@@ -36,7 +36,7 @@ import pytest
 
 from tests.orchestration.frame_helpers import control_frame, read_control
 
-from kajenn.channel.frame import Frame
+from kajenn.kbus.frame import Frame
 from kajenn_orchestra.orchestration import FreezeHandler, SpaWorker
 from kajenn_orchestra.orchestration.worker_connector import (
     CALL_METHOD,
