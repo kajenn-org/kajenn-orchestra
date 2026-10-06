@@ -19,7 +19,7 @@ fails parked calls and notifies the owning worker handler. The underlying
 Frame id is therefore already used for request/reply, despite older generic
 frame docstrings calling that a future extension.
 
-Claim anchors: [`Frame`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/frame.py#L61), [`FrameStream`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/frame.py#L258), [`KajennBusHub`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/hub.py#L136), [`KajennBusClient`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/client.py#L54), [`LocalKajennBus`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/local.py#L113), [`WorkerConnector`](../../../src/kajenn_orchestra/orchestration/worker_connector.py#L144).
+Claim anchors: [`Frame`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/kbus/frame.py#L61), [`FrameStream`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/kbus/frame.py#L258), [`KajennBusHub`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/kbus/hub.py#L136), [`KajennBusClient`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/kbus/client.py#L53), [`LocalKajennBus`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/kbus/local.py#L111), [`WorkerConnector`](../../../src/kajenn_orchestra/orchestration/worker_connector.py#L144).
 
 ## Payload ownership and current limits
 
@@ -39,10 +39,10 @@ Claim anchors: [`WsxEnvelope`](https://github.com/kajenn-org/kajenn/blob/main/sr
 
 ## Source and test evidence
 
-- [src/kajenn/channel/frame.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/frame.py)
-- [src/kajenn/channel/hub.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/hub.py)
-- [src/kajenn/channel/client.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/client.py)
-- [src/kajenn/channel/local.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/local.py)
+- [src/kajenn/kbus/frame.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/kbus/frame.py)
+- [src/kajenn/kbus/hub.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/kbus/hub.py)
+- [src/kajenn/kbus/client.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/kbus/client.py)
+- [src/kajenn/kbus/local.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/kbus/local.py)
 - [src/kajenn_orchestra/orchestration/worker_connector.py](../../../src/kajenn_orchestra/orchestration/worker_connector.py)
 - [src/kajenn_orchestra/orchestration/spa_worker.py](../../../src/kajenn_orchestra/orchestration/spa_worker.py)
 - [src/kajenn/wsx.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/wsx.py)
