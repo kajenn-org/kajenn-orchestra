@@ -178,9 +178,9 @@ from typing import Any, overload
 from genro_routes import RoutingClass, route
 import psutil
 from genro_tytx import from_tytx, to_tytx
-from kajenn.channel.frame import Frame
+from kajenn.kbus.frame import Frame
 from kajenn.lifespan import RUNNING
-from kajenn.channel.control import ControlPayload
+from kajenn.kbus.control import ControlPayload
 
 from kajenn_orchestra.orchestration_profile_store import (
     OrchestrationProfileNotFoundError,

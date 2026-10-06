@@ -21,7 +21,7 @@ entries of the machine itself — the server, its configuration, its application
 | [20_spa](20_spa/README.md) | the SPA world: front, orchestration, data plane, the bridge contract |
 | [20_spa/010 spa-application](20_spa/010_spa-application/README.md) | one stable door to the hosted site, no state in the door |
 | [20_spa/020 orchestration](20_spa/020_orchestration/README.md) | many users with live state, scaled across processes, never split |
-| [20_spa/030 channel](20_spa/030_channel/README.md) | the wire: frames, hub, the lane |
+| [20_spa/030 KajennBus](20_spa/030_channel/README.md) | the wire: frames, hub, the lane |
 | [20_spa/040 global-store](20_spa/040_global-store/README.md) | one shared state, safe read-modify-write |
 | [20_spa/070 console](20_spa/070_console/README.md) | ask a live pool the questions nobody predicted |
 | [20_spa/080 bridge-contract](20_spa/080_bridge-contract/README.md) | what genropy-asgi implements and consumes — generalized core, site logic in the bridge |

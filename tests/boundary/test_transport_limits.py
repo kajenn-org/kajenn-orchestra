@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from kajenn.channel.frame import Frame, FrameCodec, FrameStream, HEADER, CHANNEL_MAGIC, CHANNEL_VERSION
-from kajenn.channel.local import LocalFrameStream
+from kajenn.kbus.frame import Frame, FrameCodec, FrameStream, HEADER, KAJENNBUS_MAGIC, KAJENNBUS_VERSION
+from kajenn.kbus.local import LocalFrameStream
 from kajenn.http_record import HttpRecord
 from kajenn.asgi_endpoint import BufferedAsgiEndpoint
 from kajenn.transport_limits import FrameTooLarge
@@ -44,13 +44,13 @@ def test_warning_threshold_throttling_and_no_payload(caplog, monkeypatch):
     frame = Frame(method="CALL", path="/large", info={"worker_snapshot": {"name": "worker-1"}},
                   payload=b"PRIVATE-PAYLOAD" * 50)
     caplog.set_level(logging.WARNING)
-    monkeypatch.setattr("kajenn.channel.frame.time.monotonic", lambda: 100)
+    monkeypatch.setattr("kajenn.kbus.frame.time.monotonic", lambda: 100)
     wire = codec.encode(frame)
     codec.encode(frame)
     assert len(caplog.records) == 1
     assert "worker-1" in caplog.text and "path=/large" in caplog.text
     assert "PRIVATE-PAYLOAD" not in caplog.text
-    monkeypatch.setattr("kajenn.channel.frame.time.monotonic", lambda: 160)
+    monkeypatch.setattr("kajenn.kbus.frame.time.monotonic", lambda: 160)
     codec.get_frame(wire)
     assert len(caplog.records) == 2
     assert "direction=receive" in caplog.text
@@ -72,7 +72,7 @@ def test_exact_boundary_and_larger_limit_does_not_change_wire():
 
 async def test_oversized_header_rejected_before_body_read():
     reader = AsyncMock()
-    reader.readexactly.return_value = HEADER.pack(CHANNEL_MAGIC, CHANNEL_VERSION, 10, 10000)
+    reader.readexactly.return_value = HEADER.pack(KAJENNBUS_MAGIC, KAJENNBUS_VERSION, 10, 10000)
     stream = FrameStream(reader, AsyncMock(), max_size=1000)
     with pytest.raises(FrameTooLarge):
         await stream.read()

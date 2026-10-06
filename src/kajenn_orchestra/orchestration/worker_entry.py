@@ -72,7 +72,7 @@ from typing import Any
 
 from genro_toolbox.smartasync import set_sync
 
-from kajenn.channel.frame import FrameStream
+from kajenn.kbus.frame import FrameStream
 from .freeze_handler import FreezeHandler
 from .spa_worker import SpaWorker
 from .worker_handler import WORKER_ENV_VAR

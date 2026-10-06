@@ -66,7 +66,7 @@ import os
 
 from tests.orchestration.frame_helpers import control_frame, read_control
 
-from kajenn.channel.frame import REGISTER_METHOD, REGISTER_PATH, Frame, FrameStream
+from kajenn.kbus.frame import REGISTER_METHOD, REGISTER_PATH, Frame, FrameStream
 
 
 def photo_of(payload):

@@ -36,7 +36,7 @@ from typing import Any
 
 import pytest
 
-from kajenn.channel.frame import Frame
+from kajenn.kbus.frame import Frame
 from kajenn_orchestra.orchestration import FreezeHandler, SpaWorker, WorkerConnector
 from kajenn_orchestra.orchestration import spa_worker as spa_worker_module
 from kajenn_orchestra.orchestration import worker_connector as worker_connector_module

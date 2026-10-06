@@ -1,4 +1,4 @@
-# Channel — current state
+# KajennBus — current state
 
 **Version**: 0.2 · **Last Updated**: 2026-09-08 · **Status**: 🔴 evidence refreshed; design ratification unchanged
 
@@ -7,10 +7,10 @@ below identify the executable contracts; they are not a new coverage percentage.
 
 ## Generic channel and SPA worker protocol
 
-`Frame` and `FrameStream` live in `kajenn.channel.frame`. The wire is a
+`Frame` and `FrameStream` live in `kajenn.kbus.frame`. The wire is a
 four-byte big-endian length followed by `WSX://` and JSON. `FrameStream` limits
 size (default 16 MiB), rejects invalid framing and reports EOF as no next frame.
-`ChannelHub`, `ChannelClient` and `LocalChannel` serve generic communication.
+`KajennBusHub`, `KajennBusClient` and `LocalKajennBus` serve generic communication.
 
 The SPA `WorkerConnector` and worker layer use correlated CALL/REPLY frames on
 one socket, in both directions. Replies resolve pending calls inline; inbound
@@ -19,7 +19,7 @@ fails parked calls and notifies the owning worker handler. The underlying
 Frame id is therefore already used for request/reply, despite older generic
 frame docstrings calling that a future extension.
 
-Claim anchors: [`Frame`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/frame.py#L61), [`FrameStream`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/frame.py#L258), [`ChannelHub`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/hub.py#L136), [`ChannelClient`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/client.py#L54), [`LocalChannel`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/local.py#L113), [`WorkerConnector`](../../../src/kajenn_orchestra/orchestration/worker_connector.py#L144).
+Claim anchors: [`Frame`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/kbus/frame.py#L61), [`FrameStream`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/kbus/frame.py#L258), [`KajennBusHub`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/kbus/hub.py#L136), [`KajennBusClient`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/kbus/client.py#L53), [`LocalKajennBus`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/kbus/local.py#L111), [`WorkerConnector`](../../../src/kajenn_orchestra/orchestration/worker_connector.py#L144).
 
 ## Payload ownership and current limits
 
@@ -39,10 +39,10 @@ Claim anchors: [`WsxEnvelope`](https://github.com/kajenn-org/kajenn/blob/main/sr
 
 ## Source and test evidence
 
-- [src/kajenn/channel/frame.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/frame.py)
-- [src/kajenn/channel/hub.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/hub.py)
-- [src/kajenn/channel/client.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/client.py)
-- [src/kajenn/channel/local.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/channel/local.py)
+- [src/kajenn/kbus/frame.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/kbus/frame.py)
+- [src/kajenn/kbus/hub.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/kbus/hub.py)
+- [src/kajenn/kbus/client.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/kbus/client.py)
+- [src/kajenn/kbus/local.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/kbus/local.py)
 - [src/kajenn_orchestra/orchestration/worker_connector.py](../../../src/kajenn_orchestra/orchestration/worker_connector.py)
 - [src/kajenn_orchestra/orchestration/spa_worker.py](../../../src/kajenn_orchestra/orchestration/spa_worker.py)
 - [src/kajenn/wsx.py](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/wsx.py)
