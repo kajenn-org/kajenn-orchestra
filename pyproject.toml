@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kajenn-orchestra"
-version = "0.2.0"
+version = "0.3.0"
 description = "Orchestration for kajenn: SPA application, worker pool, sticky routing, freeze and reassignment"
 readme = "README.md"
 requires-python = ">=3.11"
