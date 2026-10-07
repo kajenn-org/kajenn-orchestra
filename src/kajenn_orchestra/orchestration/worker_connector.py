@@ -23,8 +23,8 @@ The normalized info accompanies the same payload bytes throughout.
 A child presents on its private UDS path, and a second simultaneous connection
 is refused. This connector remains local-only: its handler owns supervision.
 Link loss fails pending calls without replay. The connector's notification is
-a connection fact; connecting to a generic remote service uses the separate
-RemoteConnection and grants no authority over that service's process.
+a connection fact; an application in another process is reached through
+kajenn's KajennBus, which grants no authority over that process.
 
 Inbound calls are served in separate tasks so they cannot block reply reading.
 Each connection owns its pending calls; shutdown cancels service tasks and

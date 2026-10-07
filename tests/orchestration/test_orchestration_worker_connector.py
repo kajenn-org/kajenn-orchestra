@@ -248,10 +248,10 @@ async def test_an_envelope_that_is_neither_of_the_two_lanes_is_denounced(
     await child.present()
 
     with caplog.at_level("WARNING"):
-        await child.send("POST", "/lock_taken", {"user": "mario"})
+        await child.send("EVENT", "/lock_taken", {"user": "mario"})
         await wait_for(lambda: "Unexpected envelope" in caplog.text)
 
-    assert "Unexpected envelope POST" in caplog.text
+    assert "Unexpected envelope EVENT" in caplog.text
     assert handler.losses == 0
 
     await child.close()

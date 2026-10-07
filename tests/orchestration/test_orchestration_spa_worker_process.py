@@ -692,9 +692,9 @@ async def test_an_envelope_that_is_not_an_order_is_denounced_and_nothing_else(wi
 
     # A REPLY has a lane of its own now — the answer to a call this worker
     # placed upward — so what is denounced is whatever is neither of the two.
-    worker.handle_frame(control_frame(method="POST", path="/op/anything"))
+    worker.handle_frame(control_frame(method="EVENT", path="/op/anything"))
 
-    assert "unexpected envelope POST" in caplog.text
+    assert "unexpected envelope EVENT" in caplog.text
     assert worker.exited is False
 
 
