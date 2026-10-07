@@ -48,7 +48,7 @@ def test_warning_threshold_throttling_and_no_payload(caplog, monkeypatch):
     wire = codec.encode(frame)
     codec.encode(frame)
     assert len(caplog.records) == 1
-    assert "worker-1" in caplog.text and "path=/large" in caplog.text
+    assert "worker-1" not in caplog.text and "path=/large" in caplog.text
     assert "PRIVATE-PAYLOAD" not in caplog.text
     monkeypatch.setattr("kajenn.kbus.frame.time.monotonic", lambda: 160)
     codec.get_frame(wire)
