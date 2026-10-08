@@ -7,7 +7,7 @@
 [![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://github.com/kajenn-org/kajenn-orchestra/blob/main/pyproject.toml)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue)](LICENSE)
 
-**Status**: Beta · version 0.3.0.
+**Status**: Beta · version 0.4.0.
 
 Orchestration for [kajenn](https://github.com/kajenn-org/kajenn): one mountable
 application, `SpaApplication`, and a supervised pool of worker processes behind
