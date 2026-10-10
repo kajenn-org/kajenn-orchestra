@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kajenn-orchestra"
-version = "0.4.0"
+version = "0.4.5"
 description = "Orchestration for kajenn: SPA application, worker pool, sticky routing, freeze and reassignment"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -27,7 +27,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "kajenn>=0.4.0",
+    "kajenn>=0.4.5",
     # Imported by name inside src/kajenn_orchestra, so declared here: kajenn
     # installs them too, but a package depends on what it imports and not on
     # what its own dependency happens to bring along.
