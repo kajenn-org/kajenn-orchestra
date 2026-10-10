@@ -34,7 +34,7 @@ import pytest
 from kajenn import AsgiServer
 from kajenn.config.builder import AsgiConfigBuilder
 from kajenn.lifespan import STOPPING, FatalBootError
-from kajenn_server_app import ServerApplication
+from kajenn.server_app import ServerApplication
 from kajenn_orchestra.inspector_section import INSPECTOR_ENV_VAR
 from kajenn_orchestra.orchestration import SpaCommander
 from kajenn_orchestra.spa_app import SPA_CONNECTION_ID_COOKIE, SpaApplication
