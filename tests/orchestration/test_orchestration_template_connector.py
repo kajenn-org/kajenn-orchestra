@@ -85,7 +85,7 @@ async def test_a_template_that_died_is_launched_again_by_the_next_request(
 ):
     payload = {
         "name": WORKER_NAME,
-        "uds_url": f"uds:{short_root}/nobody.sock",
+        "kbus_url": f"unix://nobody:token@{short_root}/nobody.sock",
         "frozen_users_path": str(short_root / "frozen_users"),
         "worker_class": ENGINE_WORKER,
         "kwargs": {"group": GROUP, "report_path": str(tmp_path / "first.json")},
@@ -120,6 +120,7 @@ async def test_the_worker_forked_off_a_template_serves_with_the_engine_in_hand(
         worker_kwargs={"group": GROUP, "report_path": str(report)},
         process_ping_timeout=30.0,
     )
+    group.worker_handler = handler
     try:
         await handler.launch_process()
 
@@ -137,7 +138,8 @@ async def test_the_worker_forked_off_a_template_serves_with_the_engine_in_hand(
     finally:
         if handler.process is not None:
             kill_process(handler.process)
-        await handler.connector.stop()
+        handler.connector.stop()
+        await group.bus.close()
         await group.template.stop()
 
 
@@ -161,7 +163,7 @@ async def test_a_build_that_prints_cannot_dirty_the_answer_channel(
             pid = await connector.fork_worker(
                 {
                     "name": f"{GROUP}_{tag}",
-                    "uds_url": f"uds:{short_root}/nobody.sock",
+                    "kbus_url": f"unix://nobody:token@{short_root}/nobody.sock",
                     "frozen_users_path": str(short_root / "frozen_users"),
                     "worker_class": ENGINE_WORKER,
                     "kwargs": {"group": GROUP, "report_path": str(report)},
@@ -199,6 +201,7 @@ async def test_a_living_child_does_not_mask_the_templates_death(
         worker_kwargs={"group": GROUP, "report_path": str(tmp_path / "child.json")},
         process_ping_timeout=30.0,
     )
+    group.worker_handler = handler
     try:
         await handler.launch_process()
         assert handler.process.alive is True
@@ -212,5 +215,6 @@ async def test_a_living_child_does_not_mask_the_templates_death(
     finally:
         if handler.process is not None:
             kill_process(handler.process)
-        await handler.connector.stop()
+        handler.connector.stop()
+        await group.bus.close()
         await group.template.stop()

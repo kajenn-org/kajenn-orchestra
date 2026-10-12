@@ -11,7 +11,7 @@ module. Everything lives in `kajenn_orchestra` unless the text says otherwise.
 ## The process topology
 
 One server process holds the front and the commander. Every worker is a process
-of its own, reached over a Unix socket. A group that declares an engine factory
+of its own, reached over its group's bus (one `kbus` Unix socket per group). A group that declares an engine factory
 holds one more process, the template, which exists only to fork workers.
 
 ```mermaid
@@ -34,8 +34,8 @@ flowchart TD
     group --> h1
     group --> h2
     group --> tmpl
-    h1 -->|"socket"| w1
-    h2 -->|"socket"| w2
+    h1 -->|"bus"| w1
+    h2 -->|"bus"| w2
     tmpl -->|"pipes"| t
     t -.->|"fork"| w1
     t -.->|"fork"| w2
@@ -70,13 +70,13 @@ and the commander walks it to a worker.
 flowchart TD
     req["HTTP request<br/>spa_connection_id cookie"] --> demux{"First segment<br/>a front root?"}
     demux -->|"yes, and it resolves"| own["The front's own router"]
-    demux -->|"no"| pack["pack_http<br/>Frame CALL /site/..."]
+    demux -->|"no"| pack["pack_http<br/>kbus.Message /site/..."]
     pack --> resolve["resolve_worker<br/>cookie to identity"]
     resolve --> hold{"on hold?"}
     hold -->|"yes"| wait["wait, then start again"]
     wait --> resolve
     hold -->|"no"| place["group placement<br/>or the reception"]
-    place --> lane["WorkerConnector.call_frame"]
+    place --> lane["WorkerConnector.call_message"]
     lane --> worker["SpaWorker.serve_http"]
     worker --> seam["hosted_app_seam<br/>the site"]
     seam --> reply["REPLY + worker events + photo"]
@@ -86,13 +86,13 @@ flowchart TD
 
 `SpaApplication.__call__` reads the first path segment against
 `internal_roots` and, for anything else, calls `forward_request`, which packs an
-`HttpRecord` into a `Frame` and hands it to `SpaCommander.serve_request`. That
+`HttpRecord` into a `kbus.Message` and hands it to `SpaCommander.serve_request`. That
 method calls `resolve_worker`, which turns the cookie into an identity through
 `connection_user_map`, raises and waits out `UserOnHold`
 (`orchestration/exceptions.py`) while the user is between two homes, and either
 returns his placed worker, asks `GroupHandler.assign_user` for one, or — for a
-guest — returns the group's reception. The frame travels on
-`WorkerConnector.call_frame`; inside the child `SpaWorker.answer_call` routes the
+guest — returns the group's reception. The message travels on
+`WorkerConnector.call_message`; inside the child `SpaWorker.answer_call` routes the
 `http` form to `serve_http`, which resolves the user's row and calls
 `hosted_app_seam`. The reply carries three things beside the response bytes: the
 worker events of everything that changed on the registers, the worker's photo,
@@ -123,7 +123,7 @@ flowchart TD
     start["GroupHandler.start_worker"] --> name["mint name<br/>group_0001"]
     name --> handler["build WorkerHandler"]
     handler --> launch["launch_process"]
-    launch --> bind["WorkerConnector.start<br/>bind the socket"]
+    launch --> bind["WorkerConnector.start<br/>open the group bus, mint the token"]
     bind --> how{"engine_factory<br/>declared?"}
     how -->|"no"| spawn["spawn_process<br/>python -m entry_module<br/>payload in KAJENN_WORKER"]
     how -->|"yes"| fork["TemplateConnector.fork_worker<br/>payload as a JSON line"]
@@ -137,7 +137,7 @@ flowchart TD
 ```
 
 `GroupHandler.start_worker` mints `<group>_<counter>` and builds the
-`WorkerHandler`; `launch_process` binds the socket first, then calls
+`WorkerHandler`; `launch_process` opens the group's bus and mints the worker's token first, then calls
 `start_process`, which picks the birth. Without a template,
 `spawn_process` runs `subprocess.Popen([executable, "-m", entry_module])` with
 `spawn_payload` JSON-encoded in the `KAJENN_WORKER` environment variable and
@@ -198,7 +198,7 @@ the row frozen. `freeze_hosted_user` releases the hold; a departure that did not
 happen releases it too, and the refusal is written to the orchestration log.
 
 The wake is the ordinary request path. `resolve_worker` finds no placement and
-calls `assign_user`, and the frame carries the `user_frozen` verdict the
+calls `assign_user`, and the message carries the `user_frozen` verdict the
 commander attached. `SpaWorker.adopt_user` reads the parcel, deletes it — and
 the folder with it when it was the last thing inside — and announces
 `user_adopted`, which turns the mark off. A burst of requests on a frozen user

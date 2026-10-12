@@ -145,7 +145,7 @@ orders the quit; the worker answers AT ONCE with the photo of everybody flagged
 for the freezer, so the vertex parks them; it then drains, freezing one user at a
 time; emptied, it ends itself; the end of its wire was awaited, so the state says
 ``quitted``; and at the round that reads it the group does ``drop_worker`` — the
-socket taken away, the worker out of the list — which is the same verb the
+name taken off the bus, the worker out of the list — which is the same verb the
 bonifica of a wild death uses. A departure is settled on the LAST PHOTO, so a
 worker nobody ever photographed would take its users down with it: the order
 takes a photo first, which is what ``ping_process`` is for.
@@ -194,10 +194,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import secrets
 import time
 from collections import Counter
+from pathlib import Path
 from typing import Any
 
+import kbus
 from genro_routes import RoutingClass, route
 
 from .envelope_handler import GroupEnvelopeHandler
@@ -205,6 +208,7 @@ from .group_policy import GroupPolicy
 from .exceptions import AssignmentRefused, NoRoomError
 from .beats import every
 from .template_connector import TemplateConnector
+from .worker_connector import GROUP_MEMBER
 from .worker_handler import DROP_USER_OP_PATH, FREEZE_USER_OP_PATH, WorkerHandler
 
 #: The states of a worker whose process has ended: it is in the list only until
@@ -324,8 +328,8 @@ class GroupHandler:
         spa_commander: the vertex this group hangs under — the layer above in the
             chain, the rows it reads a user's estimate from, and the log every
             order goes to.
-        name: the group's name; its workers are named ``<name>_<counter>``, short
-            because the name is the socket's too.
+        name: the group's name; its workers are named ``<name>_<counter>`` and
+            its bus listens on ``<instance_dir>/<name>.sock``, so it is short.
         worker_memory_admission_percent: the memory veto — past this share of its
             ceiling a worker takes no new user, whatever its CPU says.
         worker_admission_interval_seconds: how long after admitting a user a worker
@@ -491,7 +495,19 @@ class GroupHandler:
         #: One row per periodic method of this group — turns seen, runs, errors
         #: and the last one's text.
         self.beat_counts: dict[str, dict[str, Any]] = {}
-        self._closing_wires: set[asyncio.Task[None]] = set()
+        #: The bus of this group: its workers join it as members under their
+        #: own names, and the group joins it in-process as ``group``. It listens
+        #: on ``bus_path`` from the first launch of a worker, and stays the only
+        #: road between this group and its processes.
+        self.bus = kbus.Dispatcher({})
+        self.bus.on_disconnect(self.on_member_lost)
+        self.bus_member = kbus.Member(
+            GROUP_MEMBER, secret=secrets.token_hex(32), handler=self.serve_worker_call
+        )
+        self.bus.secrets[GROUP_MEMBER] = self.bus_member.secret
+        #: The socket the bus listens on; None until it listens.
+        self.bus_path: Path | None = None
+        self._bus_lock = asyncio.Lock()
         spa_commander.group_map[name] = self
 
     # The setpoints are read through here and stored nowhere else: the names
@@ -1017,7 +1033,7 @@ class GroupHandler:
         long as the call lasts. The expiry takes the road of a refusal and loses
         nothing: the next round of ``check_user_activity`` judges him again.
 
-        ACCEPTED, and stated as the choice it is: at the expiry only the future
+        ACCEPTED, and stated as the choice it is: at the expiry only the wait
         is dropped, the order stays alive on the worker, and it may park the user
         AFTER the hold has fallen. The window ``hold_user`` closes reopens in
         that one case, and no code here covers it.
@@ -1485,7 +1501,7 @@ class GroupHandler:
             await worker_handler.launch_process()
         except Exception as failure:
             del self.worker_handler_map[name]
-            await worker_handler.connector.stop()
+            worker_handler.connector.stop()
             self.state = "broken"
             self._logger.exception("Group %s: %s could not be started", self.name, name)
             self.spa_commander.log_order(self.name, "start_worker", name, outcome=str(failure))
@@ -1496,22 +1512,62 @@ class GroupHandler:
         )
         return worker_handler
 
+    async def open_bus(self) -> None:
+        """Listen on ``<instance_dir>/<name>.sock`` and join as ``group``; once.
+
+        The directory is private and a stale socket is cleared before the bind.
+        """
+        async with self._bus_lock:
+            if self.bus_path is not None:
+                return
+            bus_path = Path(self.worker_settings["instance_dir"]) / f"{self.name}.sock"
+            bus_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            bus_path.unlink(missing_ok=True)
+            await self.bus.listen(f"unix://{bus_path}")
+            await self.bus_member.connect(self.bus)
+            self.bus_path = bus_path
+            self._logger.info("Group %s: bus listening on %s", self.name, bus_path)
+
+    async def serve_worker_call(self, message: kbus.Message, reply: kbus.Reply) -> None:
+        """Hand a call a worker placed to the connector of that worker.
+
+        Raises:
+            kbus.Refused: the caller is no longer a worker of this group.
+        """
+        worker_handler = self.worker_handler_map.get(message.meta["from"])
+        if worker_handler is None:
+            raise kbus.Refused(f"{message.meta['from']} is not a worker of group {self.name}")
+        await worker_handler.connector.serve(message, reply)
+
+    async def on_member_lost(self, name: str, reason: Exception | None) -> None:
+        """A member left the bus: its worker's connector settles what that means.
+
+        A worker already dropped is nobody's to tell.
+        """
+        worker_handler = self.worker_handler_map.get(name)
+        if worker_handler is not None:
+            worker_handler.connector.lose()
+
     async def stop(self) -> None:
-        """Take every process of this group down and close their wires.
+        """Take every process of this group down and close its bus.
 
         Acts on each of its workers: the death is DECLARED before it is dealt —
         the wait an order parks is what tells an ordered death from a wild one,
-        and a shutdown is an order — then the process is killed and buried and
-        the socket is closed. One that has already died is left alone: there is
-        nothing to kill and its wire went with it. The template goes last, when
-        there is one: it is nobody's watcher, so nothing depends on the order, but
-        the workers it forked are collected by it and it should outlive them.
+        and a shutdown is an order, so no wild death is announced — then the
+        process is killed and buried and its name is taken off the bus. One that
+        has already died is left alone. The bus closes after them and its socket
+        goes. The template goes last, when there is one: it is nobody's watcher,
+        so nothing depends on the order, but the workers it forked are collected
+        by it and it should outlive them.
         """
         for worker_handler in list(self.worker_handler_map.values()):
             if worker_handler.process is not None:
                 worker_handler.expect_death()
                 await worker_handler.terminate_process()
-            await worker_handler.connector.stop()
+            worker_handler.connector.stop()
+        await self.bus.close()
+        if self.bus_path is not None:
+            self.bus_path.unlink(missing_ok=True)
         if self.template is not None:
             await self.template.stop()
 
@@ -1540,15 +1596,13 @@ class GroupHandler:
         Raises:
             KeyError: this group has no worker of that name.
 
-        Acts on ``worker_handler_map`` and ``user_worker_map``; the socket is
-        taken away detached, since whoever calls this is the fold and cannot wait.
+        Acts on ``worker_handler_map`` and ``user_worker_map``; the name is
+        taken off the bus at once.
         CPU admission lives ON the handler, so it dies with it here — no
         per-name state survives a dropped worker.
         """
         worker_handler = self.worker_handler_map.pop(name)
-        closing = asyncio.get_running_loop().create_task(worker_handler.connector.stop())
-        self._closing_wires.add(closing)
-        closing.add_done_callback(self._closing_wires.discard)
+        worker_handler.connector.stop()
         for user in [user for user, worker in self.user_worker_map.items() if worker == name]:
             del self.user_worker_map[user]
         self.spa_commander.log_order(

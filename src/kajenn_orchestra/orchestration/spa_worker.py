@@ -176,23 +176,20 @@ single user's failure is contained where it happens, so one refused parcel
 cannot keep the process from ending. The worker has no verb of rebirth: whoever
 wants a successor launches one.
 
-**The wire is handed in, never opened here.** Whoever runs this worker in a
-process connects to the handler's socket and hands the stream over
-(``attach_stream``); the worker presents itself on it — its pid and the
-configuration it was built from — and the answer brings the whole global store
-down. Then it reads envelopes until the wire ends. A CALL coming down is served
-on its own task, so a long one cannot make this worker deaf to the next; a REPLY
-coming down is the answer to a call this worker placed UPWARD and is resolved
-inline, on the frame id the future was parked under. Any other kind of envelope
-is denounced.
+**The member is handed in, never connected here.** Whoever runs this worker in
+a process builds its ``kbus.Member`` with ``serve_call`` as the handler and hands
+it over (``attach_member``) before connecting it to the group's bus; the worker
+then presents itself — its pid and the configuration it was built from — in one
+call to the group. kbus serves every call coming down on a task of its own, so a
+long one cannot make this worker deaf to the next.
 
-**The lane upward.** ``call`` places a CALL of this worker's own on the same
-wire and awaits the answer: the id makes the conversations independent, so calls
-placed without awaiting the first resolve each with its own REPLY in whatever
-order the parent gives them, and an answer carrying an ``error`` raises
-``CommanderCallFailed`` rather than returning a result nobody made. What the
-site's verbs need is the sync door onto it: they run on a traffic-pool thread,
-and ``run_on_loop`` hops the coroutine onto the loop the wire lives on.
+**The lane upward.** ``call`` places a call of this worker's own on the group
+member and awaits the answer: kbus correlates them, so calls placed without
+awaiting the first resolve each with its own reply in whatever order the parent
+gives them, and an answer carrying an ``error`` raises ``CommanderCallFailed``
+rather than returning a result nobody made. What the site's verbs need is the
+sync door onto it: they run on a traffic-pool thread, and ``run_on_loop`` hops
+the coroutine onto the loop the member lives on.
 
 **Two pools, and what runs where.** The TRAFFIC pool takes the WSGI stitching
 and the long calls, the SERVICE pool — much smaller — takes the deposit IO;
@@ -239,10 +236,10 @@ nothing applied, and a process that dies holding the turn has the vertex give
 it back.
 
 **When the wire dies.** The handler watches the process and the process watches
-the wire: two guardians converging on the same safe state. A wire gone means
-nobody can be told anything, so the worker parks everybody in the deposit — the
-road to safety does not pass through the channel — and leaves. The
-worker events stay unsaid: whoever finds the parcels needs no telling.
+its member: two guardians converging on the same safe state. A member gone means
+nobody can be told anything, and a process in that state is not vouched for:
+the worker writes nothing to the deposit and leaves. Its users are lost at the
+vertex, which counts them in ``frozen_users_discarded``.
 """
 
 from __future__ import annotations
@@ -265,10 +262,8 @@ import psutil
 from genro_routes import RoutingClass, route
 from genro_tytx import to_tytx
 
-from kajenn.kbus.control import ControlPayload
+import kbus
 from kajenn.http_record import HttpRecord
-from kajenn.transport_limits import FrameTooLarge
-from kajenn.kbus.frame import REGISTER_METHOD, REGISTER_PATH, Frame, FrameStream
 from kajenn.exceptions import HTTPException
 from ..environ import AsgiSeam, WsgiSeam
 from ..global_store import (
@@ -282,12 +277,14 @@ from ..global_store import (
 from ..register import Register
 from ..register_registry import RegisterRegistry
 from .freeze_handler import FreezeHandler
+from .lane_payload import LanePayload
 from .worker_connector import (
-    CALL_METHOD,
     ENVELOPE_SLOT_PRESENTATION,
     ENVELOPE_SLOT_WORKER_EVENTS,
     ENVELOPE_SLOT_WORKER_SNAPSHOT,
-    REPLY_METHOD,
+    GROUP_MEMBER,
+    LINK_GONE,
+    REGISTER_PATH,
     CommanderCallFailed,
 )
 from .worker_handler import ANNOUNCE_OP_PATH
@@ -612,16 +609,13 @@ class SpaWorker:
         self.service_pool = ThreadPoolExecutor(
             max_workers=aux_threadpool_size, thread_name_prefix=f"{name}-service"
         )
-        #: The wire this worker speaks on, handed in by whoever runs it.
-        self.stream: FrameStream | None = None
-        #: The loop the wire lives on, taken with the wire: what a pool thread
-        #: hops onto to place a call of its own.
+        #: The member this worker speaks on, handed in by whoever runs it.
+        self.member: kbus.Member | None = None
+        #: The calls placed up and not finished yet, the abandoned ones included.
+        self._order_tasks: set[asyncio.Future[Any]] = set()
+        #: The loop the member lives on, taken with the member: what a pool
+        #: thread hops onto to place a call of its own.
         self.loop: asyncio.AbstractEventLoop | None = None
-        #: One future per CALL this worker placed upward, by frame id: the read
-        #: loop resolves them as the answers land, in whatever order they do.
-        self._parent_calls: dict[str, asyncio.Future[Frame]] = {}
-        self._parent_call_paths: dict[str, str] = {}
-        self._abandoned_parent_calls: dict[str, str] = {}
         #: The consumer seam of the http CALL form: an ASGI application a
         #: subclass assigns. None here — this class hosts no application of its
         #: own. Whoever assigns it also gives it this worker, the way the
@@ -670,7 +664,7 @@ class SpaWorker:
         self._quitting = False
         self._freeze_failures = 0
         self._exited = False
-        self._service_tasks: set[asyncio.Task[None]] = set()
+        self._member_closing: asyncio.Task[None] | None = None
         self._quit_task: asyncio.Task[None] | None = None
         #: The orders this process takes, as a tree: ``group/…`` and ``commander/…``.
         self.worker_dispatcher = WorkerDispatcher(self)
@@ -1177,98 +1171,54 @@ class SpaWorker:
         """
         return self._global_store
 
-    def attach_stream(self, stream: FrameStream) -> None:
-        """Take the wire this worker speaks on.
+    def attach_member(self, member: kbus.Member) -> None:
+        """Take the member this worker speaks on, before it connects.
 
         Args:
-            stream: the frame codec over the connection to the handler.
+            member: the ``kbus.Member`` named after this worker, ``serve_call``
+                its handler.
 
-        Sets ``stream`` and ``loop``. The worker never opens the wire: whoever
-        runs this worker in a process connects, and hands the connection over —
-        from that process's own loop, which is the one the lane then lives on.
+        Sets ``member`` and ``loop``. The worker never connects: whoever runs
+        this worker in a process connects the member, from that process's own
+        loop, which is the one the lane then lives on.
         """
-        self.stream = stream
-        self._abandoned_parent_calls.clear()
+        self.member = member
         self.loop = asyncio.get_running_loop()
 
     async def send_presentation(self, config: dict[str, Any]) -> None:
-        """Present this process on the wire and install the store that answers.
+        """Present this process to its group in one call.
 
         Args:
             config: the spawn payload this process was built from, echoed back
                 so the handler sees what its child understood of it.
 
-        Returns once the handler has answered, which is what tells this process
-        it is on the wire.
+        Returns once the group has answered, which is what tells this process
+        it is on the bus.
         """
-        await self.stream.write(
-            Frame(
-                method=REGISTER_METHOD,
-                path=REGISTER_PATH,
-                info=self._outbound({ENVELOPE_SLOT_PRESENTATION: os.getpid(), "config": config}),
-            )
+        await self.member.call(
+            f"{GROUP_MEMBER}.{REGISTER_PATH}",
+            LanePayload().control_message(
+                self._outbound({ENVELOPE_SLOT_PRESENTATION: os.getpid(), "config": config})
+            ),
         )
-        await self.stream.read()
 
-    async def receive_frames(self) -> None:
-        """Read the handler's envelopes until the wire ends.
+    async def serve_call(self, message: kbus.Message, reply: kbus.Reply) -> None:
+        """Serve one call of the group on a slot of its own.
 
-        Returns when the wire is gone — EOF, the death signal on a same-host
-        socket — or a protocol violation closed it. What a worker without a wire
-        does is not decided here: the caller asks for ``on_wire_lost``. Every
-        CALL still parked for an answer is failed first, with ``ConnectionError``:
-        an answer that can no longer arrive must not be waited for.
+        The slot is opened HERE, on the task kbus runs this call on and nobody
+        else's: whatever the service announces — on the loop or on the pool
+        thread the stitching runs on — lands in it and leaves with THIS reply. A
+        failure the service did not answer itself is answered here, once.
         """
+        self.open_request_slot()
         try:
-            while True:
-                try:
-                    frame = await self.stream.read()
-                except ValueError:
-                    self._logger.exception(
-                        "Worker %s: protocol violation from its handler; leaving the wire",
-                        self.name,
-                    )
-                    return
-                if frame is None:
-                    return
-                try:
-                    self.handle_frame(frame)
-                except ValueError:
-                    self._logger.exception(
-                        "Worker %s: protocol violation routing a handler reply; leaving the wire",
-                        self.name,
-                    )
-                    await self.stream.close()
-                    return
-        finally:
-            self._fail_parent_calls(ConnectionError("the wire to the handler ended"))
-
-    def _fail_parent_calls(self, cause: BaseException) -> None:
-        """Wake every parked CALL with ``cause``; the answers will never come."""
-        for future in list(self._parent_calls.values()):
-            if not future.done():
-                future.set_exception(cause)
-
-    def handle_frame(self, frame: Frame) -> None:
-        """Route one envelope from the handler: a CALL to serve, a REPLY to resolve.
-
-        Args:
-            frame: the envelope as it came off the wire.
-
-        A CALL is served on its own task, so a long op cannot make this worker
-        deaf to the next one; a REPLY is the answer to a call this worker placed
-        upward and is resolved inline, on the frame id it was parked under.
-        """
-        if frame.method == CALL_METHOD:
-            task = asyncio.create_task(self._guarded_call(frame))
-            self._service_tasks.add(task)
-            task.add_done_callback(self._service_tasks.discard)
-        elif frame.method == REPLY_METHOD:
-            self._resolve_parent_reply(frame)
-        else:
-            self._logger.warning(
-                "Worker %s: unexpected envelope %s from its handler", self.name, frame.method
+            await self.answer_call(message, reply)
+        except Exception as failure:
+            self._logger.exception(
+                "Worker %s: service of call %s failed", self.name, message.meta["route"]
             )
+            if self._request_slot_var.get() is not None:
+                await self.send_reply(message, reply, error=f"{type(failure).__name__}: {failure}")
 
     def eval_expression(self, expr: str) -> str:
         """Evaluate one debug expression against this process, repr back.
@@ -1372,70 +1322,73 @@ class SpaWorker:
             return len(value)
         return _NOT_JSON_SAFE
 
-    async def answer_call(self, frame: Frame) -> None:
-        """Answer one CALL: the http form, or an order resolved on the dispatcher.
+    async def answer_call(self, message: kbus.Message, reply: kbus.Reply) -> None:
+        """Answer one call: the http form, or an order resolved on the dispatcher.
 
         Args:
-            frame: the CALL as it came off the wire.
+            message: the call as it came off the bus.
+            reply: where its one answer goes.
 
-        Sends exactly one REPLY, whatever the outcome: the order's result, or
+        Sends exactly one reply, whatever the outcome: the order's result, or
         its error — ``NotFound`` for a path nobody serves, ``TypeError`` for a
         payload that does not fit the order's signature, both raised before any
         body runs. The HTTP form is selected by format metadata; only this
         destination opens the application's HTTP record.
         """
-        wire_format = frame.info.get("format")
-        if wire_format == "http":
-            info = frame.info
-            if set(info) - {"format", "cid", "page_id", "reply_path", "identity", "user_frozen"}:
-                raise ValueError("unexpected HTTP routing metadata")
-            if "cid" not in info:
+        meta = message.meta
+        if meta.get("format") == "http":
+            if "cid" not in meta:
                 raise ValueError("HTTP routing metadata is missing cid")
-            for key in ("cid", "page_id", "reply_path", "identity"):
-                if info.get(key) is not None and not isinstance(info[key], str):
+            for key in ("cid", "identity"):
+                if meta.get(key) is not None and not isinstance(meta[key], str):
                     raise ValueError(f"invalid HTTP routing {key}")
-            if not isinstance(info.get("user_frozen", False), bool):
+            if not isinstance(meta.get("user_frozen", False), bool):
                 raise ValueError("user_frozen must be a boolean")
-            scope, body = HttpRecord().decode_request(frame.payload)
+            envelope, record = LanePayload().decode_http(message.payload)
+            scope, body = HttpRecord().decode_request(record)
             http = {**scope, "body": body,
                     "headers": [(n.decode("latin-1"), v.decode("latin-1"))
                                 for n, v in scope.get("headers", [])],
                     "query_string": scope.get("query_string", b"").decode("latin-1"),
-                    "cid": frame.info.get("cid")}
+                    "cid": meta.get("cid")}
             for key in ("page_id", "reply_path"):
-                if key in frame.info:
-                    http[key] = frame.info[key]
-            await self.serve_http(frame, {**frame.info, "http": http})
+                if key in envelope:
+                    http[key] = envelope[key]
+            await self.serve_http(message, reply, {
+                "identity": meta.get("identity"),
+                "user_frozen": meta.get("user_frozen", False),
+                "http": http,
+            })
             return
-        if wire_format not in (None, "control-json"):
-            raise ValueError("unsupported parent call payload format")
-        payload = ControlPayload().decode(frame.payload) or {}
+        payload = LanePayload().decode_control(message.payload) or {}
         if "http" in payload:
-            raise ValueError("HTTP requests require an opaque HTTP frame")
+            raise ValueError("HTTP requests require an http payload")
         if "wsx" in payload:
-            if (frame.info.get("identity") is not None
-                    and not isinstance(frame.info["identity"], str)):
+            if meta.get("identity") is not None and not isinstance(meta["identity"], str):
                 raise ValueError("invalid WSX routing identity")
-            if not isinstance(frame.info.get("user_frozen", False), bool):
+            if not isinstance(meta.get("user_frozen", False), bool):
                 raise ValueError("WSX user_frozen must be a boolean")
-            payload = {**payload, "identity": frame.info.get("identity"),
-                       "user_frozen": frame.info.get("user_frozen", False)}
-            await self.serve_wsx(frame, payload)
+            payload = {**payload, "identity": meta.get("identity"),
+                       "user_frozen": meta.get("user_frozen", False)}
+            await self.serve_wsx(message, reply, payload)
             return
         try:
-            result = self.worker_dispatcher.route.node(frame.path)(**payload)
+            result = self.worker_dispatcher.route.node(meta["route"])(**payload)
             if inspect.isawaitable(result):
                 result = await result
         except Exception as exc:
-            await self.send_reply(frame, error=f"{type(exc).__name__}: {exc}")
+            await self.send_reply(message, reply, error=f"{type(exc).__name__}: {exc}")
         else:
-            await self.send_reply(frame, result=result)
+            await self.send_reply(message, reply, result=result)
 
-    async def serve_http(self, frame: Frame, payload: dict[str, Any]) -> None:
+    async def serve_http(
+        self, message: kbus.Message, reply: kbus.Reply, payload: dict[str, Any]
+    ) -> None:
         """Serve the http CALL form through the WSGI seam, or refuse it.
 
         Args:
-            frame: the CALL being answered.
+            message: the call being answered.
+            reply: where its one answer goes.
             payload: its whole payload — the ``http`` dict the front packed, the
                 ``identity`` to route on and the ``user_frozen`` verdict, which
                 belong together because the row is resolved from all three.
@@ -1455,15 +1408,20 @@ class SpaWorker:
             # are the ones the browser must read.
             result, error, status = None, refused.detail, refused.status
         except Exception as exc:
-            self._logger.exception("Worker %s: http CALL %s failed", self.name, frame.path)
+            self._logger.exception(
+                "Worker %s: http CALL %s failed", self.name, message.meta["route"]
+            )
             result, error, status = None, f"{type(exc).__name__}: {exc}", None
-        await self.send_reply(frame, result=result, error=error, status=status)
+        await self.send_reply(message, reply, result=result, error=error, status=status)
 
-    async def serve_wsx(self, frame: Frame, payload: dict[str, Any]) -> None:
+    async def serve_wsx(
+        self, message: kbus.Message, reply: kbus.Reply, payload: dict[str, Any]
+    ) -> None:
         """Serve the ``wsx`` CALL form: a channel command of one page.
 
         Args:
-            frame: the CALL being answered.
+            message: the call being answered.
+            reply: where its one answer goes.
             payload: its whole payload — the ``wsx`` dict the front composed,
                 the ``identity`` to route on and the ``user_frozen`` verdict.
 
@@ -1482,64 +1440,65 @@ class SpaWorker:
         except HTTPException as refused:
             result, error, status = None, refused.detail, refused.status
         except Exception as exc:
-            self._logger.exception("Worker %s: wsx CALL %s failed", self.name, frame.path)
+            self._logger.exception(
+                "Worker %s: wsx CALL %s failed", self.name, message.meta["route"]
+            )
             result, error, status = None, f"{type(exc).__name__}: {exc}", None
-        await self.send_reply(frame, result=result, error=error, status=status)
+        await self.send_reply(message, reply, result=result, error=error, status=status)
 
     async def send_reply(
-        self, frame: Frame, *, result: Any = None, error: Any = None, status: int | None = None
+        self,
+        message: kbus.Message,
+        reply: kbus.Reply,
+        *,
+        result: Any = None,
+        error: Any = None,
+        status: int | None = None,
     ) -> None:
-        """Answer a CALL, carrying what happened here while it was being served.
+        """Answer a call, carrying what happened here while it was being served.
 
         Args:
-            frame: the CALL being answered; its id is what makes this a REPLY.
+            message: the call being answered; its format is the reply's.
+            reply: where the answer goes, once.
             result: the answer, when there is one.
             error: what went wrong instead.
             status: what the parent should answer, when this worker knows —
                 only a refusal knows. Absent from every other failure, and the
                 front then answers as it always did.
 
-        Empties the ``worker_events`` of this CALL's slot onto the envelope — the
+        Empties the ``worker_events`` of this call's slot into the envelope — the
         worker events are delivered once, and the send IS the delivery — and
-        attaches the photo when it is due. Then the slot is closed: an event
-        offered after the reply of the CALL that could have carried it is a
+        attaches the photo when it is due. ``status`` rides the meta; ``error``
+        rides the payload with the envelope, since its text has no bound. Then
+        the slot is closed: an event
+        offered after the reply of the call that could have carried it is a
         fault, and ``request_slot`` says so.
         """
         with self.dispatch_lock:
             slot = self.request_slot
             events = slot.worker_events
-        info: dict[str, Any] = {ENVELOPE_SLOT_WORKER_EVENTS: events}
-        if error is not None:
-            info["error"] = error
-            if status is not None:
-                info["status"] = status
-            payload = ControlPayload().encode({"error": error, **({"status": status} if status else {})})
-            info["format"] = "control-json"
-        elif frame.info.get("format") == "http":
-            info["format"] = "http"
-            info["connection_id"] = result.get("connection_id")
-            payload = HttpRecord().encode_response(
-                {key: result[key] for key in ("status", "headers", "body")}
-            )
-        else:
-            info["format"] = "control-json"
-            payload = ControlPayload().encode({"result": result})
-        reply = Frame(id=frame.id, method=REPLY_METHOD, path=frame.path,
-                      info=self._outbound(info), payload=payload)
-        # Serialization failures above leave this call's slot available for an
-        # explicit error reply. Once sending begins, failure is uncertain: close
-        # the wire so its caller fails instead of waiting forever or replaying.
+        envelope = self._outbound({ENVELOPE_SLOT_WORKER_EVENTS: events})
         try:
-            await self.stream.write(reply)
-        except FrameTooLarge:
-            # No bytes were written. Keep the events for the error reply and
-            # ensure the snapshot rejected with this response is sent again.
-            if ENVELOPE_SLOT_WORKER_SNAPSHOT in reply.info:
+            if error is not None:
+                answer = LanePayload().control_message(
+                    {**envelope, "error": error}, **({"status": status} if status else {}))
+            elif message.meta.get("format") == "http":
+                answer = kbus.Message(
+                    {"format": "http", "connection_id": result.get("connection_id")},
+                    LanePayload().encode_http(envelope, HttpRecord().encode_response(
+                        {key: result[key] for key in ("status", "headers", "body")})),
+                )
+            else:
+                answer = LanePayload().control_message({**envelope, "result": result})
+            await reply.send(answer)
+        except (kbus.FrameTooLarge, ValueError):
+            # Nothing was sent: the slot keeps its events for the error reply,
+            # and the photo refused with this answer goes out again.
+            if ENVELOPE_SLOT_WORKER_SNAPSHOT in envelope:
                 self._population_changed = True
             raise
         except Exception:
             self._request_slot_var.set(None)
-            await self.stream.close()
             raise
         with self.dispatch_lock:
             slot.worker_events = []
@@ -1548,7 +1507,7 @@ class SpaWorker:
     async def call(
         self, path: str, data: Any = None, timeout: float | None = None
     ) -> Any:
-        """CALL the commander on the lane and await its answer.
+        """Call the group on the lane and await its answer.
 
         Args:
             path: the routing key of the call, which is what the parent serves.
@@ -1556,54 +1515,39 @@ class SpaWorker:
             timeout: the caller's own deadline; None waits until the answer lands.
 
         Returns:
-            The ``result`` the parent put in its REPLY.
+            The ``result`` the parent put in its reply.
 
         Raises:
             CommanderCallFailed: the answer carried an ``error`` instead.
+            ConnectionError: the member is gone, or went while waiting.
 
-        The frame carries its own id and the future is parked under it, so calls
-        placed without awaiting the first resolve each with its own answer, in
-        whatever order the parent gives them. Reachable from a pool thread
-        through ``run_on_loop``.
+        Calls placed without awaiting the first resolve each with its own
+        answer, in whatever order the parent gives them. A caller that gives up
+        leaves the call running on the group: nothing is cancelled there.
+        Reachable from a pool thread through ``run_on_loop``.
         """
-        frame = Frame(method=CALL_METHOD, path=path, info={"format": "control-json"},
-                      payload=ControlPayload().encode(data))
-        reply_frame = await self.call_frame(frame, timeout=timeout)
-        reply = ControlPayload().decode(reply_frame.payload) or {}
-        if "error" in reply:
-            raise CommanderCallFailed(path, str(reply["error"]))
-        return reply.get("result")
-
-    async def call_frame(self, frame: Frame, timeout: float | None = None) -> Frame:
-        """Call the parent with opaque bytes; parked calls belong to this wire."""
-        if frame.method != CALL_METHOD:
-            raise ValueError("parent request/reply calls require method CALL")
-        if frame.id in self._parent_calls or frame.id in self._abandoned_parent_calls:
-            raise ValueError("duplicate in-flight correlation id")
-        if len(self._parent_calls) >= 256:
-            raise ConnectionError("parent call capacity exhausted; request not sent")
-        future: asyncio.Future[Frame] = asyncio.get_running_loop().create_future()
-        self._parent_calls[frame.id] = future
-        self._parent_call_paths[frame.id] = frame.path
-        sent = False
+        order = asyncio.ensure_future(
+            self.member.call(f"{GROUP_MEMBER}.{path}", LanePayload().control_message(data))
+        )
+        self._order_tasks.add(order)
+        order.add_done_callback(self._forget_order)
         try:
-            sent = True
-            await self.stream.write(frame)
-            if timeout is None:
-                return await asyncio.shield(future)
-            return await asyncio.wait_for(asyncio.shield(future), timeout)
-        except (asyncio.CancelledError, TimeoutError):
-            if sent and not future.done():
-                if len(self._abandoned_parent_calls) >= 256:
-                    await self.stream.close()
-                else:
-                    self._abandoned_parent_calls[frame.id] = frame.path
-            raise
-        finally:
-            self._parent_calls.pop(frame.id, None)
-            self._parent_call_paths.pop(frame.id, None)
-            if not future.done():
-                future.cancel()
+            async with asyncio.timeout(timeout):
+                reply = await asyncio.shield(order)
+        except (*LINK_GONE, kbus.Overloaded) as exc:
+            raise ConnectionError(f"the member of {self.name} is gone: {exc}") from exc
+        except (kbus.Refused, kbus.RemoteError) as exc:
+            raise CommanderCallFailed(path, str(exc)) from exc
+        answer = LanePayload().decode_control(reply.payload) or {}
+        if "error" in answer:
+            raise CommanderCallFailed(path, str(answer["error"]))
+        return answer.get("result")
+
+    def _forget_order(self, order: asyncio.Future[Any]) -> None:
+        """Drop a finished call; its failure is read here when nobody waits on it."""
+        self._order_tasks.discard(order)
+        if not order.cancelled():
+            order.exception()
 
     def send_message(self, page_id: str, path: str, data: Any = None) -> bool:
         """Write one message of the site onto the page's websocket.
@@ -1618,27 +1562,21 @@ class SpaWorker:
             page speaks on none.
 
         Callable from a traffic-pool thread, which is where the site's own code
-        runs: the CALL goes up on the loop and this thread waits for its REPLY.
+        runs: the call goes up on the loop and this thread waits for its reply.
         Fire and forget in meaning, not in mechanics — delivered says written
         to the socket, never executed by the page (W-12).
 
-        The payload is serialised HERE, before it reaches the lane: the lane is
-        opaque bytes. The browser's codec reads the JSON TYTX value; the
-        frontend only wraps that serialized text in the public WSX envelope.
+        The payload is serialised HERE, as TYTX text the browser's codec reads:
+        the lane is JSON and carries no date, Decimal or bytes of its own, and
+        the frontend only wraps that text in the public WSX envelope.
         """
         with self.dispatch_lock:
             row = self.page_register.get(page_id)
             cid = row.get("connection_id") if row is not None else None
         encoded = to_tytx(data, "json") if data is not None else None
-        reply_frame = self.run_on_loop(self.call_frame(Frame(
-            method=CALL_METHOD, path=WEBSOCKET_SEND_PATH,
-            info={"format": "wsx-json", "page_id": page_id, "reply_path": path,
-                  "cid": cid, "data_present": encoded is not None},
-            payload=encoded.encode("utf-8") if encoded is not None else b"")))
-        reply = ControlPayload().decode(reply_frame.payload) or {}
-        if "error" in reply:
-            raise CommanderCallFailed(WEBSOCKET_SEND_PATH, str(reply["error"]))
-        return bool((reply.get("result") or {}).get("delivered"))
+        result = self.run_on_loop(self.call(
+            WEBSOCKET_SEND_PATH, {"page_id": page_id, "path": path, "data": encoded, "cid": cid}))
+        return bool((result or {}).get("delivered"))
 
     def run_on_loop(self, coro: Any) -> Any:
         """Run a coroutine on this worker's loop from a pool thread, and wait.
@@ -1654,31 +1592,15 @@ class SpaWorker:
         """
         return asyncio.run_coroutine_threadsafe(coro, self.loop).result()
 
-    def _resolve_parent_reply(self, frame: Frame) -> None:
-        """Hand the answer to the parked call; a caller already gone drops it."""
-        abandoned_path = self._abandoned_parent_calls.get(frame.id)
-        if abandoned_path is not None:
-            if frame.path != abandoned_path:
-                raise ValueError("abandoned parent REPLY does not belong to its route")
-            self._abandoned_parent_calls.pop(frame.id, None)
-            return
-        future = self._parent_calls.get(frame.id)
-        if future is None or future.done():
-            self._logger.debug("Worker %s: the REPLY %s has no parked call", self.name, frame.id)
-            return
-        if frame.path != self._parent_call_paths[frame.id]:
-            raise ValueError("parent REPLY does not belong to its parked route")
-        future.set_result(frame)
-
     async def on_wire_lost(self) -> None:
-        """The wire is gone: leave, and save nothing.
+        """The member is gone: leave, and save nothing.
 
         A process that lost its wire is unhealthy, so what it holds is not
         vouched for: it writes no parcel to the deposit. Its users are lost at
         the vertex, which drops what such a worker leaves and counts them in
         ``frozen_users_discarded``.
         """
-        self._logger.warning("Worker %s: its wire is gone — leaving, saving nothing", self.name)
+        self._logger.warning("Worker %s: its member is gone — leaving, saving nothing", self.name)
         self.exit_process()
 
     async def adopt_user(self, user: str) -> dict[str, Any]:
@@ -2256,13 +2178,13 @@ class SpaWorker:
     def exit_process(self) -> None:
         """Leave the process — the last act of ``quit`` and of ``on_wire_lost``.
 
-        Closes the wire, which is what ends the read the shell is parked on, and
-        stops the two pools. Nothing here kills a process: the shell returns
-        from its run and the process ends with it.
+        Closes the member on a task of its own — its end is what the shell waits
+        on — and stops the two pools. Nothing here kills a process: the shell
+        returns from its run and the process ends with it.
         """
         self._exited = True
-        if self.stream is not None:
-            self.stream.writer.close()
+        if self.member is not None and self.member.connection is not None:
+            self._member_closing = self.loop.create_task(self.member.close())
         self.traffic_pool.shutdown(wait=False)
         self.service_pool.shutdown(wait=False)
 
@@ -2305,28 +2227,6 @@ class SpaWorker:
         """Cede every user and make the plan terminal: sets ``_quitting`` and the flags."""
         self._quitting = True
         self.plan_transfers(transfer_users=self.user_register.keys())
-
-    async def _guarded_call(self, frame: Frame) -> None:
-        """Serve one CALL on a slot of its own, with the guard inside the task.
-
-        The slot is opened HERE, on the task that is this CALL's and nobody
-        else's: whatever the service announces — on the loop or on the pool
-        thread the stitching runs on — lands in it and leaves with THIS reply.
-        The guard keeps the task from dying unretrieved.
-        """
-        self.open_request_slot()
-        try:
-            await self.answer_call(frame)
-        except Exception as failure:
-            self._logger.exception("Worker %s: service of CALL %s failed", self.name, frame.path)
-            if self._request_slot_var.get() is not None:
-                try:
-                    await self.send_reply(frame, error=f"{type(failure).__name__}: {failure}")
-                except Exception:
-                    # A malformed/oversized control envelope cannot carry even
-                    # the error. Link loss must release every parked caller.
-                    await self.stream.close()
-                    self._logger.exception("Worker %s: error reply failed", self.name)
 
     async def _serve_request(self, payload: dict[str, Any]) -> dict[str, Any]:
         """The pendings, the row and the stitching — everything that can fail as one.

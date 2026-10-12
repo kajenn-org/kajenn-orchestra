@@ -178,9 +178,8 @@ from typing import Any, overload
 from genro_routes import RoutingClass, route
 import psutil
 from genro_tytx import from_tytx, to_tytx
-from kajenn.kbus.frame import Frame
+import kbus
 from kajenn.lifespan import RUNNING
-from kajenn.kbus.control import ControlPayload
 
 from kajenn_orchestra.orchestration_profile_store import (
     OrchestrationProfileNotFoundError,
@@ -463,7 +462,7 @@ class CommanderOperations(RoutingClass):
     is :class:`GlobalStoreOperations`, and a consumer attaches its own class
     under a name of its own with ``add_branches`` — once, from its subclass of
     the commander. A path nobody serves raises ``NotFound`` when the node is
-    called; the wire turns it into the error REPLY.
+    called; the connector turns it into an error reply.
 
     Args:
         spa_commander: the vertex.
@@ -696,13 +695,14 @@ class SpaCommander:
         return name
 
     async def serve_request(
-        self, cid: str | None, http: Frame, *, hold_timeout: float
-    ) -> Frame:
+        self, cid: str | None, path: str, http: kbus.Message, *, hold_timeout: float
+    ) -> kbus.Message:
         """Serve one request of the hosted site, from the cookie to the answer.
 
         Args:
             cid: the connection the request carries, None when it carries none —
                 a browser the site has never named.
+            path: the route of the request on the worker, ``/site`` and its path.
             http: the request in the form the child reads, without the cid.
             hold_timeout: the WHOLE time this request may spend waiting for a user
                 who is between two homes, however many times it has to wait.
@@ -724,11 +724,7 @@ class SpaCommander:
         """
         user, worker_handler = await self.resolve_worker(cid, hold_timeout=hold_timeout)
         return await self._call_worker(
-            worker_handler,
-            http.path,
-            Frame(id=http.id, method="CALL", path=http.path,
-                  info={**http.info, "cid": cid}, payload=http.payload),
-            user,
+            worker_handler, path, kbus.Message({**http.meta, "cid": cid}, http.payload), user
         )
 
     async def serve_wsx_request(
@@ -817,8 +813,8 @@ class SpaCommander:
 
     @overload
     async def _call_worker(
-        self, worker_handler: Any, path: str, payload: Frame, user: str | None
-    ) -> Frame: ...
+        self, worker_handler: Any, path: str, payload: kbus.Message, user: str | None
+    ) -> kbus.Message: ...
 
     @overload
     async def _call_worker(
@@ -826,8 +822,9 @@ class SpaCommander:
     ) -> dict[str, Any]: ...
 
     async def _call_worker(
-        self, worker_handler: Any, path: str, payload: dict[str, Any] | Frame, user: str | None
-    ) -> dict[str, Any] | Frame:
+        self, worker_handler: Any, path: str, payload: dict[str, Any] | kbus.Message,
+        user: str | None,
+    ) -> dict[str, Any] | kbus.Message:
         """Put one request on a worker's lane and hand its REPLY back.
 
         Args:
@@ -847,19 +844,14 @@ class SpaCommander:
         """
         trusted = {"identity": user,
                    "user_frozen": self.user_is_frozen(user) if user is not None else False}
-        if isinstance(payload, Frame):
-            reply = await worker_handler.connector.call_frame(
-                Frame(id=payload.id, method="CALL", path=path,
-                      info={**payload.info, **trusted}, payload=payload.payload)
+        if isinstance(payload, kbus.Message):
+            reply, envelope = await worker_handler.connector.call_message(
+                path, kbus.Message({**payload.meta, **trusted}, payload.payload)
             )
-            if "error" in reply.info:
-                raise SiteFailedRequest(user, str(reply.info["error"]), reply.info.get("status"))
+            if "error" in envelope:
+                raise SiteFailedRequest(user, str(envelope["error"]), reply.meta.get("status"))
             return reply
-        reply_frame = await worker_handler.connector.call_frame(Frame(
-            method="CALL", path=path, info={"format": "control-json", **trusted},
-            payload=ControlPayload().encode(payload)))
-        reply = {**(ControlPayload().decode(reply_frame.payload) or {}),
-                 **{key: value for key, value in reply_frame.info.items() if key != "format"}}
+        reply = await worker_handler.connector.call(path, payload, meta=trusted)
         if "error" in reply:
             raise SiteFailedRequest(user, str(reply["error"]), reply.get("status"))
         return reply

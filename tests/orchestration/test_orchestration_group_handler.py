@@ -40,6 +40,7 @@ import time as real_time
 from pathlib import Path
 from typing import Any
 
+import kbus
 import pytest
 
 from kajenn_orchestra.orchestration import AssignmentRefused, GroupHandler, SpaCommander
@@ -55,7 +56,7 @@ from kajenn_orchestra.orchestration.worker_handler import (
     WORKER_ENV_VAR,
     WorkerHandler,
 )
-from tests.orchestration.frame_helpers import control_frame
+from tests.orchestration.message_helpers import http_message
 
 from .conftest import kill_process, wait_for
 
@@ -75,9 +76,9 @@ import json
 import os
 import time
 
-from tests.orchestration.frame_helpers import call_endpoint, control_frame, read_control
+from tests.orchestration.message_helpers import join_bus, present
 
-from kajenn.kbus.frame import REGISTER_METHOD, REGISTER_PATH, Frame, FrameStream
+from kajenn_orchestra.orchestration.lane_payload import LanePayload
 
 
 async def live() -> None:
@@ -109,85 +110,70 @@ async def live() -> None:
             for user in kwargs["users"]
         }},
     }}
-    reader, writer = await asyncio.open_unix_connection(payload["uds_url"].removeprefix("uds:"))
-    stream = FrameStream(reader, writer)
-    await stream.write(
-        control_frame(
-            method=REGISTER_METHOD,
-            path=REGISTER_PATH,
-            data={{"pid": os.getpid(), "{snapshot_key}": photo}},
-        )
-    )
-    await stream.read()
-    while True:
-        frame = await stream.read()
-        if frame is None:
-            return
-        if frame.method == "CALL":
-            data = {{"result": {{}}}}
-            # The ordered freeze: the REPLY IS the confirmation, and the worker
-            # event of the departure rides it. Refused on demand, which is the
-            # departure that did not happen.
-            if frame.path == "{freeze_path}":
-                user = (read_control(frame) or {{}})["user"]
-                # Taken and never answered: the order that outlives the caller's
-                # own deadline, which is the wait the group puts a ceiling on.
-                if kwargs["freeze_unanswered"]:
-                    continue
-                if kwargs["freeze_refused"]:
-                    data = {{"error": "the deposit refused the parcels of " + user}}
-                else:
-                    photo["users"].pop(user, None)
-                    data = {{
-                        "result": {{"frozen": user}},
-                        "{events_key}": [
-                            {{
-                                "op": "user_frozen",
-                                "worker": payload["name"],
-                                "user": user,
-                                "placement": None,
-                            }}
-                        ],
-                    }}
-                await stream.write(
-                    control_frame(id=frame.id, method="REPLY", path=frame.path, data=data)
-                )
-                continue
-            # The order to forget somebody: the row goes and the departure is
-            # ANNOUNCED, which is what prunes the indexes above.
-            if frame.path == "{drop_path}":
-                user = (read_control(frame) or {{}})["user"]
-                # Taken and never answered, like the freeze above: the drop order
-                # has a ceiling of its own and the group must not sit on it.
-                if kwargs["drop_unanswered"]:
-                    continue
-                photo["users"].pop(user, None)
-                await stream.write(
-                    control_frame(
-                        id=frame.id,
-                        method="REPLY",
-                        path=frame.path,
-                        data={{
-                            "result": {{}},
-                            "{events_key}": [
-                                {{"op": "drop_user", "worker": payload["name"], "user": user}}
-                            ],
-                        }},
-                    )
-                )
-                continue
-            # A real worker attaches its photo only when one is DUE, so an
-            # answer — the one to the order to leave included — may carry none.
-            if frame.path != "{quit_path}" or kwargs["photo_on_quit"]:
-                data["{snapshot_key}"] = photo
-            await stream.write(
-                control_frame(id=frame.id, method="REPLY", path=frame.path, data=data)
-            )
-            # Asked to leave it leaves, after answering: the answer is what
-            # carries the photo of everybody it is about to park.
-            if frame.path == "{quit_path}":
-                await stream.close()
+    leaving = asyncio.Event()
+
+    async def serve(message, reply):
+        path = message.meta["route"]
+        data = {{"result": {{}}}}
+        # The ordered freeze: the REPLY IS the confirmation, and the worker
+        # event of the departure rides it. Refused on demand, which is the
+        # departure that did not happen.
+        if path == "{freeze_path}":
+            user = LanePayload().decode_control(message.payload)["user"]
+            # Taken and never answered: the order that outlives the caller's
+            # own deadline, which is the wait the group puts a ceiling on.
+            if kwargs["freeze_unanswered"]:
+                await asyncio.Event().wait()
+            if kwargs["freeze_refused"]:
+                await reply.send(LanePayload().control_message(
+                    {{}}, error="the deposit refused the parcels of " + user
+                ))
                 return
+            photo["users"].pop(user, None)
+            await reply.send(LanePayload().control_message({{
+                "result": {{"frozen": user}},
+                "{events_key}": [
+                    {{
+                        "op": "user_frozen",
+                        "worker": payload["name"],
+                        "user": user,
+                        "placement": None,
+                    }}
+                ],
+            }}))
+            return
+        # The order to forget somebody: the row goes and the departure is
+        # ANNOUNCED, which is what prunes the indexes above.
+        if path == "{drop_path}":
+            user = LanePayload().decode_control(message.payload)["user"]
+            # Taken and never answered, like the freeze above: the drop order
+            # has a ceiling of its own and the group must not sit on it.
+            if kwargs["drop_unanswered"]:
+                await asyncio.Event().wait()
+            photo["users"].pop(user, None)
+            await reply.send(LanePayload().control_message({{
+                "result": {{}},
+                "{events_key}": [
+                    {{"op": "drop_user", "worker": payload["name"], "user": user}}
+                ],
+            }}))
+            return
+        # A real worker attaches its photo only when one is DUE, so an
+        # answer — the one to the order to leave included — may carry none.
+        if path != "{quit_path}" or kwargs["photo_on_quit"]:
+            data["{snapshot_key}"] = photo
+        await reply.send(LanePayload().control_message(data))
+        # Asked to leave it leaves, after answering: the answer is what
+        # carries the photo of everybody it is about to park.
+        if path == "{quit_path}":
+            leaving.set()
+
+    member = await join_bus(payload["kbus_url"], serve)
+    await present(member, {{"pid": os.getpid(), "{snapshot_key}": photo}})
+    ended = asyncio.ensure_future(member.connected.wait_closed())
+    left = asyncio.ensure_future(leaving.wait())
+    await asyncio.wait({{ended, left}}, return_when=asyncio.FIRST_COMPLETED)
+    await member.close()
 
 
 asyncio.run(live())
@@ -303,10 +289,11 @@ async def make_group(commander, group_settings):
     yield build
     for group in groups:
         for worker_handler in list(group.worker_handler_map.values()):
+            worker_handler.connector.stop()
             if worker_handler.process is not None:
                 kill_process(worker_handler.process)
                 await wait_for(lambda: not worker_handler.process.alive)
-            await worker_handler.connector.stop()
+        await group.bus.close()
 
 
 def known_at_the_vertex(commander, cid: str, user: str) -> None:
@@ -503,7 +490,7 @@ async def test_the_closure_of_a_spare_worker_goes_through_its_six_steps(make_gro
     assert group.reception is reception
     assert commander.user_is_frozen("mario") is True
     assert group.user_worker_map == {"mario": None}
-    await wait_for(lambda: not spare.connector.socket_path.exists())
+    await wait_for(lambda: spare.name not in group.bus.secrets)
 
 
 async def test_a_closure_the_memory_veto_refuses_is_not_made(make_group):
@@ -937,7 +924,8 @@ async def test_a_request_arriving_under_the_order_waits_and_is_served_after_it(
     request = asyncio.ensure_future(
         commander.serve_request(
             "cid-a",
-            control_frame(method="CALL", path="/invoices", data={"http": {"path": "/invoices"}}),
+            "/invoices",
+            http_message({"http": {"path": "/invoices"}}),
             hold_timeout=5.0,
         )
     )
@@ -951,7 +939,7 @@ async def test_a_request_arriving_under_the_order_waits_and_is_served_after_it(
     confirm.set()
 
     assert await order is True
-    assert "error" not in (await request).info
+    assert "error" not in (await request).meta
     assert group.user_worker_map["mario"] == worker_handler.name
 
 
@@ -1063,7 +1051,11 @@ async def test_a_drop_order_that_cannot_be_sent_frees_the_user_and_the_round(mak
         known_at_the_vertex(commander, cid, user)
         await group.assign_user(user)
         worker_handler.hosted_users.add(user)
-    worker_handler.connector._stream = None
+
+    async def link_gone(route, message):
+        raise kbus.LinkLost("connection closed")
+
+    group.bus_member.call = link_gone
 
     await group.check_user_activity(now=True)
 
@@ -1160,7 +1152,8 @@ async def test_a_request_arriving_under_the_expiry_order_waits_instead_of_routin
     request = asyncio.ensure_future(
         commander.serve_request(
             "cid-c",
-            control_frame(method="CALL", path="/invoices", data={"http": {"path": "/invoices"}}),
+            "/invoices",
+            http_message({"http": {"path": "/invoices"}}),
             hold_timeout=5.0,
         )
     )
@@ -1175,4 +1168,4 @@ async def test_a_request_arriving_under_the_expiry_order_waits_instead_of_routin
 
     assert "ugo" not in commander.user_map
     assert "ugo" not in commander.user_hold_event_map
-    assert "error" not in (await request).info
+    assert "error" not in (await request).meta

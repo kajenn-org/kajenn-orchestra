@@ -15,7 +15,7 @@
 """The foundations end to end: a worker is born, works, dies wild, and leaves its traces.
 
 The three foundations are exercised together, in one story, on the real things:
-a real child process (``child_stub``), a real Unix socket, a real deposit on
+a real child process (``child_stub``), a real group bus, a real deposit on
 disk. Nothing here is doubled except the level above — ``GroupStub``, because
 the GroupHandler is Macro 2's — and the test reads the deposit from the parent
 side through a FreezeHandler of its own, over the same root the child was given.
@@ -93,7 +93,8 @@ async def handler(short_root, group, repo_on_pythonpath):
     if worker_handler.process is not None:
         kill_process(worker_handler.process)
         await wait_for(lambda: not worker_handler.process.alive)
-    await worker_handler.connector.stop()
+    worker_handler.connector.stop()
+    await group.bus.close()
 
 
 async def order(handler: WorkerHandler, path: str, data: Any = None) -> Any:

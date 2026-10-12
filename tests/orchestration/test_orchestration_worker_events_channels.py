@@ -21,9 +21,9 @@ event that no CALL produced — the transfer cycle of a quit — goes up with a 
 of the worker's own. The login is the first case this contract protects: a ping
 ending while ``doLogin`` still runs must evict nobody.
 
-The worker here speaks on a stub wire that keeps every frame it writes and answers
-the worker's own CALLs, so a test reads exactly what each REPLY and each CALL
-carried. The deposit is a real ``FreezeHandler`` on a real directory.
+The worker here speaks on a stub member that keeps every message it sends and
+answers the worker's own calls, so a test reads exactly what each reply and each
+call carried. The deposit is a real ``FreezeHandler`` on a real directory.
 """
 
 from __future__ import annotations
@@ -34,12 +34,10 @@ from typing import Any
 
 import pytest
 
-from tests.orchestration.frame_helpers import control_frame, read_control
+from tests.orchestration.message_helpers import read_control
 
-from kajenn.kbus.frame import Frame
 from kajenn_orchestra.orchestration import FreezeHandler, SpaWorker
 from kajenn_orchestra.orchestration.worker_connector import (
-    CALL_METHOD,
     ENVELOPE_SLOT_WORKER_EVENTS,
     ENVELOPE_SLOT_WORKER_SNAPSHOT,
 )
@@ -90,8 +88,11 @@ def http_call(path: str) -> dict[str, Any]:
     }
 
 
-def events_of(frame: Frame) -> list[str]:
-    return [event["op"] for event in (read_control(frame) or {}).get(ENVELOPE_SLOT_WORKER_EVENTS) or ()]
+def events_of(message: Any) -> list[str]:
+    return [
+        event["op"]
+        for event in (read_control(message) or {}).get(ENVELOPE_SLOT_WORKER_EVENTS) or ()
+    ]
 
 
 @pytest.fixture
@@ -102,34 +103,31 @@ def deposit(tmp_path):
 @pytest.fixture
 async def worker(deposit):
     worker = XT_SiteWorker(WORKER_NAME, freeze_handler=deposit, deposit_lock_retry_interval=0.01)
-    wire = XT_Wire(worker)
-    worker.attach_stream(wire)
+    worker.member = XT_Wire(worker)
+    worker.loop = asyncio.get_running_loop()
     yield worker
     worker.gate.set()
 
 
-async def serve(worker: SpaWorker, path: str, data: Any) -> Frame:
-    """Hand the worker one CALL the way the wire does; return the frame, not the answer."""
-    frame = control_frame(method=CALL_METHOD, path=path, data=data)
-    worker.handle_frame(frame)
-    return frame
+async def serve(worker: SpaWorker, path: str, data: Any) -> XT_Wire.XT_Reply:
+    """Hand the worker one call the way kbus does; return where its answer lands."""
+    return worker.member.serve(path, data)
 
 
 # -- channel one: the REPLY of the CALL that caused the event --
 
 
 async def test_a_reply_carries_only_the_events_its_own_call_caused(worker):
-    wire = worker.stream
     visit = await serve(worker, "/http", http_call("/visit"))
     await asyncio.get_running_loop().run_in_executor(None, worker.acted.wait)
 
     ping = await serve(worker, PING_OP_PATH, {})
-    await wait_for(lambda: wire.reply_to(ping.id) is not None)
-    assert events_of(wire.reply_to(ping.id)) == []
+    await wait_for(lambda: ping.message is not None)
+    assert events_of(ping.message) == []
 
     worker.gate.set()
-    await wait_for(lambda: wire.reply_to(visit.id) is not None)
-    assert events_of(wire.reply_to(visit.id)) == ["new_user", "new_connection"]
+    await wait_for(lambda: visit.message is not None)
+    assert events_of(visit.message) == ["new_user", "new_connection"]
 
 
 def test_an_event_outside_any_call_is_refused(deposit):
@@ -143,19 +141,18 @@ def test_an_event_outside_any_call_is_refused(deposit):
 
 
 async def test_a_ping_ending_during_a_login_evicts_nobody(worker, deposit):
-    wire = worker.stream
     login = await serve(worker, "/http", http_call("/login"))
     await asyncio.get_running_loop().run_in_executor(None, worker.acted.wait)
 
     ping = await serve(worker, PING_OP_PATH, {})
-    await wait_for(lambda: wire.reply_to(ping.id) is not None)
-    assert events_of(wire.reply_to(ping.id)) == []
+    await wait_for(lambda: ping.message is not None)
+    assert events_of(ping.message) == []
     assert worker.connection_register.get(CID)["user"] == "mario"
     assert deposit.read_connection_register_item("mario", CID) is None
 
     worker.gate.set()
-    await wait_for(lambda: wire.reply_to(login.id) is not None)
-    assert events_of(wire.reply_to(login.id)) == [
+    await wait_for(lambda: login.message is not None)
+    assert events_of(login.message) == [
         "new_user",
         "new_connection",
         "connection_user_changed",
@@ -169,7 +166,7 @@ async def test_a_ping_ending_during_a_login_evicts_nobody(worker, deposit):
 
 
 async def test_the_transfer_cycle_announces_each_freeze_with_a_call_of_its_own(worker, deposit):
-    wire = worker.stream
+    wire = worker.member
     worker.open_request_slot()
     worker.add_connection(CID)
     worker.change_connection_user(CID, "mario")
@@ -180,9 +177,9 @@ async def test_the_transfer_cycle_announces_each_freeze_with_a_call_of_its_own(w
     await worker.execute_transfers()
 
     announced = wire.calls(ANNOUNCE_OP_PATH)
-    assert [events_of(frame) for frame in announced] == [["user_frozen"]]
+    assert [events_of(message) for message in announced] == [["user_frozen"]]
     assert ENVELOPE_SLOT_WORKER_SNAPSHOT in read_control(announced[0])
-    assert wire.replies() == []
+    assert wire.replies == []
     assert deposit.read_user_register_item("mario") is not None
 
 
@@ -207,14 +204,13 @@ async def test_the_vertex_folds_an_announcement_like_a_reply(worker_commander_la
 
 async def test_reply_encoding_failure_answers_and_keeps_its_events(worker):
     """An invalid endpoint result must not consume the slot and strand the caller."""
-    async def answer(frame):
+    async def answer(message, reply):
         worker.add_connection(CID)
-        await worker.send_reply(frame, result=object())
+        await worker.send_reply(message, reply, result=object())
 
     worker.answer_call = answer
-    frame = control_frame(method=CALL_METHOD, path="/invalid-result", data={})
-    await worker._guarded_call(frame)
-    reply = worker.stream.reply_to(frame.id)
-    assert "invalid control payload" in reply.info["error"]
-    assert events_of(reply) == ["new_user", "new_connection"]
+    reply = worker.member.serve("/invalid-result", {})
+    await wait_for(lambda: reply.message is not None)
+    assert "invalid control payload" in read_control(reply.message)["error"]
+    assert events_of(reply.message) == ["new_user", "new_connection"]
     assert worker._request_slot_var.get() is None

@@ -30,7 +30,7 @@ from typing import Any
 
 import pytest
 
-from tests.orchestration.frame_helpers import http_reply
+from tests.orchestration.message_helpers import http_reply
 
 from kajenn import AsgiServer
 from kajenn_orchestra.spa_app import ORCHESTRATION_ROOT, SpaApplication
@@ -63,10 +63,10 @@ class QuietCommander(SpaCommander):
         self.started = False
 
     async def serve_request(
-        self, cid: str | None, http: dict[str, Any], *, hold_timeout: float
-    ) -> dict[str, Any]:
+        self, cid: str | None, path: str, http: Any, *, hold_timeout: float
+    ) -> Any:
         """What the hosted site answers, so a fall-through is visible from outside."""
-        return http_reply(http, {
+        return http_reply({
             "result": {
                 "status": 200,
                 "headers": [],

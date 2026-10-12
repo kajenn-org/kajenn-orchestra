@@ -30,7 +30,7 @@ from typing import Any
 
 import pytest
 
-from tests.orchestration.frame_helpers import control_frame, read_http_request, http_reply
+from tests.orchestration.message_helpers import http_message, read_http_request, http_reply
 from kajenn.http_record import HttpRecord
 
 from kajenn_orchestra.orchestration import (
@@ -40,6 +40,7 @@ from kajenn_orchestra.orchestration import (
     SpaCommander,
     WorkerHandler,
 )
+from kajenn_orchestra.orchestration.lane_payload import LanePayload
 from kajenn_orchestra.orchestration.spa_commander import SHAPE_REVIEW_SECONDS, SITE_PATH_PREFIX
 
 #: The concession of these groups, so a photo of 780_000 bytes is a worker at 78%.
@@ -74,16 +75,19 @@ class ConnectorDouble:
         #: One entry per call, as (path, payload) — what really went down.
         self.calls: list[tuple[str, Any]] = []
 
-    async def call(self, path: str, data: Any = None, timeout: float | None = None) -> Any:
-        self.calls.append((path, data))
+    async def call(
+        self, path: str, data: Any = None, timeout: float | None = None, meta: Any = None
+    ) -> Any:
+        self.calls.append((path, {**data, **(meta or {})}))
         if self.failure is not None:
             raise self.failure
         return self.reply
 
-    async def call_frame(self, frame, timeout=None):
-        data = {**{k: v for k, v in frame.info.items() if k not in ("format", "cid")},
-                "http": read_http_request(frame)}
-        return http_reply(frame, await self.call(frame.path, data, timeout))
+    async def call_message(self, path, message, timeout=None):
+        data = {**{k: v for k, v in message.meta.items() if k not in ("format", "cid")},
+                "http": read_http_request(message)}
+        reply = http_reply(await self.call(path, data, timeout))
+        return reply, LanePayload().envelope(reply)
 
 
 @pytest.fixture
@@ -115,9 +119,9 @@ def worker_at(group, name: str, occupancy_percent: float = 10.0, **wire: Any) ->
     return worker_handler
 
 
-def request(path: str = "/invoices") -> dict[str, Any]:
-    """The http form as the front packs it, minus the cid the chain adds."""
-    return control_frame(method="CALL", path=SITE_PATH_PREFIX + path, data={"http": {
+def request(path: str = "/invoices") -> tuple[str, Any]:
+    """The route and the http form as the front packs them, minus the cid the chain adds."""
+    return SITE_PATH_PREFIX + path, http_message({"http": {
         "method": "GET",
         "path": path,
         "query_string": "",
@@ -132,16 +136,16 @@ async def test_a_newcomer_travels_anonymous_and_the_site_baptises(commander, gro
     reception, the site names one, and the fold writes the indexes at the fact."""
     worker_handler = worker_at(group, "standard_0001")
 
-    reply = await commander.serve_request(None, request(), hold_timeout=HOLD_TIMEOUT)
+    reply = await commander.serve_request(None, *request(), hold_timeout=HOLD_TIMEOUT)
 
-    assert HttpRecord().decode_response(reply.payload)["status"] == 200
+    assert HttpRecord().decode_response(LanePayload().decode_http(reply.payload)[1])["status"] == 200
     # Nothing was minted: the request travelled anonymous, to the reception.
     assert commander.connection_user_map == {}
     assert commander.user_map == {}
     path, payload = worker_handler.connector.calls[0]
     assert path == f"{SITE_PATH_PREFIX}/invoices"
     assert payload == {
-        "http": {**read_http_request(request()), "cid": None},
+        "http": {**read_http_request(request()[1]), "cid": None},
         "identity": None,
         "user_frozen": False,
     }
@@ -170,7 +174,7 @@ async def test_a_resident_goes_to_his_own_worker_and_is_placed_again_by_nobody(c
     group.user_worker_map["mario"] = "standard_0002"
     commander.record_user_group("mario", "standard")
 
-    await commander.serve_request("cid-a", request(), hold_timeout=HOLD_TIMEOUT)
+    await commander.serve_request("cid-a", *request(), hold_timeout=HOLD_TIMEOUT)
 
     # The hottest-first walk would have chosen the first: a resident is not walked.
     assert first.connector.calls == []
@@ -183,7 +187,7 @@ async def test_the_freezer_verdict_travels_with_the_request(commander, group):
     commander.mark_user_frozen("mario")
     commander.record_user_group("mario", "standard")
 
-    await commander.serve_request("cid-a", request(), hold_timeout=HOLD_TIMEOUT)
+    await commander.serve_request("cid-a", *request(), hold_timeout=HOLD_TIMEOUT)
 
     _path, payload = worker_handler.connector.calls[0]
     assert payload["user_frozen"] is True
@@ -215,7 +219,7 @@ async def test_a_user_wakes_in_the_group_he_was_frozen_on(commander, short_root)
     commander.record_user_group("mario", "canary")
     commander.mark_user_frozen("mario")
 
-    await commander.serve_request("cid-a", request(), hold_timeout=HOLD_TIMEOUT)
+    await commander.serve_request("cid-a", *request(), hold_timeout=HOLD_TIMEOUT)
 
     assert commander.default_group == "stable"
     assert on_stable.connector.calls == []
@@ -224,7 +228,7 @@ async def test_a_user_wakes_in_the_group_he_was_frozen_on(commander, short_root)
 
 async def test_a_pool_that_takes_nobody_refuses_and_says_when_to_come_back(commander, group):
     with pytest.raises(AssignmentRefused) as refused:
-        await commander.serve_request("cid-a", request(), hold_timeout=HOLD_TIMEOUT)
+        await commander.serve_request("cid-a", *request(), hold_timeout=HOLD_TIMEOUT)
 
     assert refused.value.retry_after == SHAPE_REVIEW_SECONDS
     assert commander.counters["requests_refused"] == 1
@@ -237,14 +241,14 @@ async def test_a_request_for_a_user_on_hold_leaves_the_moment_he_is_home(command
     commander.hold_user("mario", "transfer_flag T")
 
     serving = asyncio.ensure_future(
-        commander.serve_request("cid-a", request(), hold_timeout=HOLD_TIMEOUT)
+        commander.serve_request("cid-a", *request(), hold_timeout=HOLD_TIMEOUT)
     )
     await asyncio.sleep(0)
     assert not serving.done()
 
     commander.mark_user_adopted("mario")
 
-    assert HttpRecord().decode_response((await serving).payload)["status"] == 200
+    assert HttpRecord().decode_response(LanePayload().decode_http((await serving).payload)[1])["status"] == 200
     assert commander.counters["requests_refused"] == 0
 
 
@@ -254,7 +258,7 @@ async def test_a_hold_that_outlives_the_budget_is_a_refusal(commander, group):
     commander.hold_user("mario", "transfer_flag T")
 
     with pytest.raises(AssignmentRefused) as refused:
-        await commander.serve_request("cid-a", request(), hold_timeout=0.01)
+        await commander.serve_request("cid-a", *request(), hold_timeout=0.01)
 
     assert refused.value.user == "mario"
     assert refused.value.retry_after == SHAPE_REVIEW_SECONDS
@@ -282,7 +286,7 @@ async def test_the_budget_is_the_whole_wait_and_not_one_of_them(commander, group
     keeper = asyncio.ensure_future(let_go_and_hold_again())
     started = asyncio.get_running_loop().time()
     with pytest.raises(AssignmentRefused):
-        await commander.serve_request("cid-a", request(), hold_timeout=0.05)
+        await commander.serve_request("cid-a", *request(), hold_timeout=0.05)
     elapsed = asyncio.get_running_loop().time() - started
     keeper.cancel()
 
@@ -293,7 +297,7 @@ async def test_a_site_that_failed_inside_its_process_is_not_a_refusal(commander,
     worker_at(group, "standard_0001", reply={"error": "ZeroDivisionError: division by zero"})
 
     with pytest.raises(SiteFailedRequest) as failed:
-        await commander.serve_request("cid-a", request(), hold_timeout=HOLD_TIMEOUT)
+        await commander.serve_request("cid-a", *request(), hold_timeout=HOLD_TIMEOUT)
 
     assert "ZeroDivisionError" in str(failed.value)
     # It is the upstream's failure: nobody was refused and nothing is owed a wait.
@@ -305,7 +309,7 @@ async def test_a_wire_that_is_gone_falls_through_to_the_caller(commander, group)
     worker_at(group, "standard_0001", failure=ConnectionError("no child on the wire"))
 
     with pytest.raises(ConnectionError):
-        await commander.serve_request("cid-a", request(), hold_timeout=HOLD_TIMEOUT)
+        await commander.serve_request("cid-a", *request(), hold_timeout=HOLD_TIMEOUT)
 
 
 async def test_two_requests_of_the_same_unknown_land_on_the_reception(commander, group):
@@ -316,8 +320,8 @@ async def test_two_requests_of_the_same_unknown_land_on_the_reception(commander,
     second = worker_at(group, "standard_0002", occupancy_percent=10.0)
 
     await asyncio.gather(
-        commander.serve_request("cid-a", request(), hold_timeout=HOLD_TIMEOUT),
-        commander.serve_request("cid-a", request("/orders"), hold_timeout=HOLD_TIMEOUT),
+        commander.serve_request("cid-a", *request(), hold_timeout=HOLD_TIMEOUT),
+        commander.serve_request("cid-a", *request("/orders"), hold_timeout=HOLD_TIMEOUT),
     )
 
     assert len(first.connector.calls) == 2

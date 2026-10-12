@@ -71,7 +71,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from tests.orchestration.frame_helpers import call_endpoint
+from tests.orchestration.message_helpers import call_endpoint
 
 from kajenn_orchestra.spa_app import SPA_CONNECTION_ID_COOKIE
 from kajenn.config import ConfigurationHandler
@@ -290,7 +290,8 @@ async def group(pool_config):
         if worker_handler.process is not None:
             kill_process(worker_handler.process)
             await wait_for(lambda: not worker_handler.process.alive)
-        await worker_handler.connector.stop()
+        worker_handler.connector.stop()
+    await group_handler.bus.close()
 
 
 async def test_the_pool_of_a_config_file_lives_its_whole_day(group, story_root):

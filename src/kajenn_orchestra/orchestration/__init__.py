@@ -20,7 +20,7 @@ worker it grew beside were dropped at the cutover of 2026-08-22 and live only on
 
 Its foundations, in the order they are built: ``FreezeHandler``, the deposit on
 disk and the only place in the project that talks to the filesystem directly;
-``WorkerConnector``, the wire of one worker; ``WorkerHandler``, which owns one
+``WorkerConnector``, one worker on its group's bus; ``WorkerHandler``, which owns one
 process and its death; ``SpaWorker``, the registers that process serves from;
 ``WorkerEntry``, the shell that runs one of those workers in a child process;
 ``TemplateEntry``, the process that builds a group's engine once and forks those

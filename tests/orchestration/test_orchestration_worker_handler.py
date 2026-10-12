@@ -12,18 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""WorkerHandler tests: real child processes, real sockets, real kills.
+"""WorkerHandler tests: real child processes, a real bus, real kills.
 
 The handler governs an operating-system process, so every test here spawns one: a
 scripted child written to disk at test time (``CHILD_SCRIPT``), started by the
 handler itself as ``python -m <module>`` and configured by the very payload the
-handler puts in ``KAJENN_WORKER``. The child answers every CALL with a photo,
-or stays mute on purpose, or never shows up at all — the three behaviours the
-surveillance has to tell apart.
+handler puts in ``KAJENN_WORKER``. The child joins the group's bus with the URL
+of that payload, and answers every call with a photo, or stays mute on purpose,
+or never shows up at all — the three behaviours the surveillance has to tell
+apart.
 
-The sockets live under a short ``mkdtemp`` root: the system caps a UDS path at
-about a hundred characters and pytest's own directory is already past it, which
-is the very reason handler names are short.
+The bus socket lives under a short ``mkdtemp`` root: the system caps a UDS path
+at about a hundred characters and pytest's own directory is already past it.
 
 ``GroupStub`` is the level above, shared with the other tests of this package: the
 handler asks it for the wake it rings when a process of its own has ended, and for
@@ -64,9 +64,9 @@ import asyncio
 import json
 import os
 
-from tests.orchestration.frame_helpers import control_frame, read_control
+from tests.orchestration.message_helpers import join_bus, present
 
-from kajenn.kbus.frame import REGISTER_METHOD, REGISTER_PATH, Frame, FrameStream
+from kajenn_orchestra.orchestration.lane_payload import LanePayload
 
 
 def photo_of(payload):
@@ -79,37 +79,29 @@ async def live() -> None:
     if behaviour == "absent":
         await asyncio.sleep(60)
         return
-    reader, writer = await asyncio.open_unix_connection(payload["uds_url"].removeprefix("uds:"))
-    stream = FrameStream(reader, writer)
-    await stream.write(
-        control_frame(
-            method=REGISTER_METHOD,
-            path=REGISTER_PATH,
-            data={{"pid": os.getpid(), "config": payload, "{snapshot_key}": photo_of(payload)}},
-        )
-    )
-    await stream.read()
-    while True:
-        frame = await stream.read()
-        if frame is None:
-            return
-        if frame.method == "CALL" and behaviour != "mute":
-            photo = {{"pid": os.getpid(), "asked_on": frame.path, "rss_mb": 42}}
-            await stream.write(
-                control_frame(
-                    id=frame.id,
-                    method="REPLY",
-                    path=frame.path,
-                    data={{"result": {{"answered": frame.path}}, "{snapshot_key}": photo}},
-                )
-            )
-            # Asked to leave, it leaves — after answering, like a real worker:
-            # the answer is what carries the photo of everybody departing. Unless
-            # it is the one that answers and then stays, which is what a
-            # departure nobody can wait for any longer looks like.
-            if frame.path == "{quit_path}" and behaviour == "answer":
-                await stream.close()
-                return
+    leaving = asyncio.Event()
+
+    async def serve(message, reply):
+        if behaviour == "mute":
+            await asyncio.Event().wait()
+        path = message.meta["route"]
+        photo = {{"pid": os.getpid(), "asked_on": path, "rss_mb": 42}}
+        await reply.send(LanePayload().control_message(
+            {{"result": {{"answered": path}}, "{snapshot_key}": photo}}
+        ))
+        # Asked to leave, it leaves — after answering, like a real worker:
+        # the answer is what carries the photo of everybody departing. Unless
+        # it is the one that answers and then stays, which is what a
+        # departure nobody can wait for any longer looks like.
+        if path == "{quit_path}" and behaviour == "answer":
+            leaving.set()
+
+    member = await join_bus(payload["kbus_url"], serve)
+    await present(member, {{"pid": os.getpid(), "config": payload, "{snapshot_key}": photo_of(payload)}})
+    ended = asyncio.ensure_future(member.connected.wait_closed())
+    left = asyncio.ensure_future(leaving.wait())
+    await asyncio.wait({{ended, left}}, return_when=asyncio.FIRST_COMPLETED)
+    await member.close()
 
 
 asyncio.run(live())
@@ -141,7 +133,12 @@ async def make_handler(instance_root, group):
     """Build handlers, and let no process or socket of theirs outlive the test."""
     handlers: list[WorkerHandler] = []
 
-    def build(name: str = "standard_0001", behaviour: str = "answer", **kwargs: Any):
+    def build(
+        name: str = "standard_0001",
+        behaviour: str = "answer",
+        process_ping_timeout: float = 10.0,
+        **kwargs: Any,
+    ):
         handler = WorkerHandler(
             group,
             name,
@@ -149,7 +146,10 @@ async def make_handler(instance_root, group):
             frozen_users_path=instance_root / "frozen_users",
             entry_module=CHILD_MODULE,
             worker_kwargs={"behaviour": behaviour},
-            process_ping_timeout=1.0,
+            # Wide at birth: the same value bounds the wait for the presentation,
+            # and a fresh interpreter on a loaded machine can take a second to
+            # get there. The mute scenarios tighten it to what they measure.
+            process_ping_timeout=process_ping_timeout,
             **kwargs,
         )
         handlers.append(handler)
@@ -158,10 +158,11 @@ async def make_handler(instance_root, group):
 
     yield build
     for handler in handlers:
+        handler.connector.stop()
         if handler.process is not None:
             kill_process(handler.process)
             await wait_for(lambda: not handler.process.alive)
-        await handler.connector.stop()
+    await group.bus.close()
 
 
 async def test_the_spawn_payload_carries_the_child_whole_configuration(make_handler, instance_root):
@@ -170,10 +171,12 @@ async def test_the_spawn_payload_carries_the_child_whole_configuration(make_hand
         aux_threadpool_size=2,
         worker_class="kajenn_orchestra.orchestration.spa_worker:SpaWorker",
     )
+    await handler.connector.start()
+    token = handler.group_handler.bus.secrets["standard_0001"]
 
     assert handler.spawn_payload == {
         "name": "standard_0001",
-        "uds_url": f"uds:{instance_root / 'i' / 'standard_0001.sock'}",
+        "kbus_url": f"unix://standard_0001:{token}@{instance_root / 'bus' / 'standard.sock'}",
         "frozen_users_path": str(instance_root / "frozen_users"),
         "main_threadpool_size": 8,
         "aux_threadpool_size": 2,
@@ -189,7 +192,7 @@ async def test_the_chain_composes_nothing_to_send_back_down(make_handler, group)
     assert handler.read_envelope({}) == {}
 
 
-async def test_a_launched_process_presents_itself_on_the_handlers_socket(make_handler):
+async def test_a_launched_process_presents_itself_on_the_handlers_socket(make_handler, group):
     handler = make_handler()
     assert handler.state == "starting"
 
@@ -197,7 +200,7 @@ async def test_a_launched_process_presents_itself_on_the_handlers_socket(make_ha
 
     assert handler.process.alive
     assert handler.connector.connected is True
-    assert handler.connector.socket_path.exists()
+    assert group.bus_path.exists()
     assert handler.state == "running"
 
 
@@ -234,6 +237,7 @@ async def test_the_beat_gives_back_what_the_process_answered(make_handler):
 async def test_a_mute_process_is_killed_after_one_repeated_beat(make_handler, group, caplog):
     handler = make_handler(behaviour="mute")
     await handler.launch_process()
+    handler.process_ping_timeout = 1.0
     process = handler.process
 
     with caplog.at_level("WARNING"):
@@ -350,7 +354,7 @@ async def test_a_second_launch_over_a_living_process_is_refused(make_handler):
 async def test_a_process_that_never_presents_itself_is_killed_and_the_wait_raises(
     make_handler, group
 ):
-    handler = make_handler(behaviour="absent")
+    handler = make_handler(behaviour="absent", process_ping_timeout=1.0)
 
     with pytest.raises(TimeoutError):
         await handler.launch_process()

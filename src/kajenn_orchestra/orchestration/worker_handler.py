@@ -15,13 +15,13 @@
 """WorkerHandler: the handler, which stays, and the process under it, which does not.
 
 A handler belongs to its group, carries a short name (``standard_0001``, minted by
-the group; short because the socket path has a hard system budget) and owns one
-socket. The process under it is replaceable: it can be killed, it can die on its
-own, it can be reborn on the same name and the same socket — and every placement
-pointing at the handler is untouched by all of that.
+the group) and is the member of that name on the group's bus. The process under
+it is replaceable: it can be killed, it can die on its own, it can be reborn on
+the same name with a fresh token — and every placement pointing at the handler is
+untouched by all of that.
 
-**Four orders, and each verb carries its object.** ``launch_process`` opens the
-wire, spawns the child and waits for it to present itself; ``terminate_process``
+**Four orders, and each verb carries its object.** ``launch_process`` mints the
+child's URL, spawns the child and waits for it to present itself; ``terminate_process``
 kills the process group and waits for the OS to bury it; ``quit_process`` asks
 the process to leave and waits for it to be gone; ``ping_process`` is one health
 beat, and it gives back what the child answered. Nothing here freezes a user,
@@ -39,7 +39,7 @@ what that process announces.
 the timeout — against a lost packet, not against a sick worker — and then the
 process group is killed and its OS death awaited: SIGKILL, no escalation and no
 grace, because a grace period is the users waiting. Only after that death may a
-successor be launched: the wire is one, so a handler is never two processes. The
+successor be launched: the name is one member, so a handler is never two processes. The
 declared price is that the slow-but-healthy dies and its users log in again,
 which is seconds of error instead of minutes of spinner.
 
@@ -85,8 +85,8 @@ Commander, which is also the one that decides the orders worth counting.
 that calls it belongs to whoever governs the group. What the handler does say is
 whether it is worth beating at all: every envelope stamps the instant it
 arrived, so a process that has just answered traffic is not ``silent`` and its
-group leaves it alone. The handler's burial — the
-socket taken away — is ``WorkerConnector.stop()``, called by whoever closes the
+group leaves it alone. The handler's burial — its name
+taken off the bus — is ``WorkerConnector.stop()``, called by whoever closes the
 handler for good.
 
 Every order and every wild death leaves its line here through the module
@@ -215,8 +215,8 @@ class WorkerHandler:
             its ``envelope_handler`` is the way up for everything the process
             announces.
         name: the handler's name, minted by the group as ``<group>_<counter>``;
-            it names the socket too, so it is short.
-        instance_dir: the directory holding the sockets of this installation.
+            its process joins the group's bus under it.
+        instance_dir: the directory holding the bus sockets of this installation.
         frozen_users_path: the deposit root the child builds its own access to.
         entry_module: the module the child is started as (``python -m ...``).
         main_threadpool_size: the child's traffic pool size, None for its own
@@ -306,11 +306,10 @@ class WorkerHandler:
         #: the handler and decides nothing.
         self.cpu_offload_condition: tuple[str, str | None] | None = None
         self.envelope_handler = WorkerEnvelopeHandler(self, group_handler.envelope_handler)
-        self.connector = WorkerConnector(self, self.instance_dir / f"{name}.sock")
+        self.connector = WorkerConnector(self)
         self._logger = logging.getLogger(__name__)
         self._hosted_users: set[str] = set()
         self._death_wait: asyncio.Future[None] | None = None
-        self._listening = False
         self._last_envelope_ts = 0.0
         self._running_since: float | None = None
         self._observation_switched = False
@@ -342,7 +341,7 @@ class WorkerHandler:
         """The child's whole configuration, as it travels JSON-encoded in ``KAJENN_WORKER``."""
         return {
             "name": self.name,
-            "uds_url": self.connector.address,
+            "kbus_url": self.connector.url,
             "frozen_users_path": str(self.frozen_users_path),
             "main_threadpool_size": self.main_threadpool_size,
             "aux_threadpool_size": self.aux_threadpool_size,
@@ -501,9 +500,18 @@ class WorkerHandler:
 
     def _fire_observation_switch(self) -> None:
         """Turn this process's observation on without holding up the envelope it presented with."""
-        task = asyncio.create_task(self.connector.call(OBSERVE_OP_PATH, {"on": True}))
+        task = asyncio.create_task(self._switch_observation())
         self._observation_switch_tasks.add(task)
         task.add_done_callback(self._observation_switch_tasks.discard)
+
+    async def _switch_observation(self) -> None:
+        """Say whether anybody watches as of when the task runs, not when it was fired.
+
+        The fold of a reply runs in the caller's own task, so the caller may
+        switch the pool off before this task gets its turn.
+        """
+        watched = self.group_handler.spa_commander.observation_watched
+        await self.connector.call(OBSERVE_OP_PATH, {"on": watched})
 
     def serve_child_call(self, path: str, data: dict[str, Any]) -> Any:
         """Resolve a CALL the child placed on the lane on the group's dispatcher, and call it.
@@ -527,7 +535,7 @@ class WorkerHandler:
         return self.group_handler.group_dispatcher.route.node(path)(**data)
 
     async def launch_process(self) -> None:
-        """Open the wire if it is closed, spawn the child, wait for it to present itself.
+        """Mint the child's URL, spawn the child, wait for it to present itself.
 
         Raises:
             RuntimeError: a process is already alive under this handler.
@@ -535,23 +543,21 @@ class WorkerHandler:
                 ``process_ping_timeout``; it is killed before the raise.
 
         Sets ``process`` and ``state`` — ``starting`` while the child is on its
-        way, ``running`` once it has presented itself — and binds the socket on
-        the first launch.
+        way, ``running`` once it has presented itself. Every launch carries a
+        fresh token: the previous process can no longer join.
         """
         if self.process is not None and self.process.alive:
             raise RuntimeError(
                 f"WorkerHandler {self.name}: its process (pid {self.process.pid}) is still alive"
             )
-        if not self._listening:
-            await self.connector.start()
-            self._listening = True
+        await self.connector.start()
         self.state = "starting"
         self.process = await self.start_process()
         self._logger.info(
             "Worker %s: launched its process (pid %s) on %s",
             self.name,
             self.process.pid,
-            self.connector.address,
+            self.group_handler.bus_path,
         )
         try:
             await asyncio.wait_for(self.connector.wait_connected(), self.process_ping_timeout)
@@ -683,7 +689,7 @@ class WorkerHandler:
         return None
 
     def on_child_lost(self) -> None:
-        """The wire died: the parked wait says whether anybody was expecting it.
+        """The member left the bus: the parked wait says whether anybody was expecting it.
 
         Sets ``state`` — ``quitted`` when a wait was live, ``aborted`` when the
         death was nobody's order — rings the group's wake, and gives the vertex

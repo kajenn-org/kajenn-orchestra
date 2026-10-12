@@ -151,7 +151,7 @@ $ kajenn serve ./config.py --port 8347
 kajenn serving http://127.0.0.1:8347
 INFO:     Started server process [27739]
 INFO:     Waiting for application startup.
-INFO:__main__:Worker smoke_0001: serving on uds:.../instance/smoke_0001.sock (pid 27788)
+INFO:__main__:Worker smoke_0001: serving on its group's bus (pid 27788)
 INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8347 (Press CTRL+C to quit)
 ```

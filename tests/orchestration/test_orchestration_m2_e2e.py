@@ -56,7 +56,7 @@ from http.cookies import SimpleCookie
 from typing import Any
 
 import pytest
-from tests.orchestration.frame_helpers import call_endpoint, read_control
+from tests.orchestration.message_helpers import call_endpoint, read_control
 
 from kajenn_orchestra.spa_app import SPA_CONNECTION_ID_COOKIE
 from kajenn_orchestra.orchestration import (
@@ -134,11 +134,12 @@ class DrivenWorker(SpaWorker):
         )
         return [f"{environ['REQUEST_METHOD']} {environ['PATH_INFO']} for {identity}".encode()]
 
-    async def answer_call(self, frame: Any) -> None:
+    async def answer_call(self, message: Any, reply: Any) -> None:
         """Answer the two orders of the driver, and hand everything else upstairs.
 
         Args:
-            frame: the CALL as it came off the wire.
+            message: the call as it came off the bus.
+            reply: where its one answer goes.
 
         The shot is taken BEFORE the reply is composed, which is the whole point
         of the shot logic: the photo riding the reply is the one the transfers
@@ -146,14 +147,14 @@ class DrivenWorker(SpaWorker):
         group judges that. The cycle order is answered when the cycle is OVER, so
         the reply carries what the departures said and the picture they left.
         """
-        if frame.path == PLAN_ORDER:
-            self.plan_transfers(transfer_users=(read_control(frame) or {}).get("users", ()))
-            await self.send_reply(frame, result={})
-        elif frame.path == EXECUTE_ORDER:
+        if message.meta["route"] == PLAN_ORDER:
+            self.plan_transfers(transfer_users=(read_control(message) or {}).get("users", ()))
+            await self.send_reply(message, reply, result={})
+        elif message.meta["route"] == EXECUTE_ORDER:
             await self.execute_transfers()
-            await self.send_reply(frame, result={})
+            await self.send_reply(message, reply, result={})
         else:
-            await super().answer_call(frame)
+            await super().answer_call(message, reply)
 
 
 def http_call(cid: str, identity: str, *, path: str, **payload: Any) -> dict[str, Any]:
@@ -240,7 +241,8 @@ async def handler(short_root, group, repo_on_pythonpath):
     if worker_handler.process is not None:
         kill_process(worker_handler.process)
         await wait_for(lambda: not worker_handler.process.alive)
-    await worker_handler.connector.stop()
+    worker_handler.connector.stop()
+    await group.bus.close()
 
 
 async def test_the_worker_is_born_serves_parks_wakes_departs_and_a_successor_takes_over(

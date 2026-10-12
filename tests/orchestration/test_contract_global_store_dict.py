@@ -269,7 +269,7 @@ async def test_a_read_of_any_key_waits_while_a_turn_is_in_force(
     first = asyncio.create_task(holder())
     await granted.wait()
     second = asyncio.create_task(reader())
-    await wait_for(lambda: bool(second_worker_commander_lane.worker._parent_calls))
+    await wait_for(lambda: bool(second_worker_commander_lane.worker_handler.connector._service_tasks))
     assert seen == []
 
     release_now.set()
@@ -299,7 +299,7 @@ async def test_waiting_turns_are_served_in_order_and_see_the_previous_release(
     first = asyncio.create_task(first_holder())
     await granted.wait()
     second = asyncio.create_task(second_holder())
-    await wait_for(lambda: bool(second_worker_commander_lane.worker._parent_calls))
+    await wait_for(lambda: bool(second_worker_commander_lane.worker_handler.connector._service_tasks))
     release_now.set()
     await asyncio.gather(first, second)
 
@@ -370,7 +370,7 @@ async def test_a_commit_whose_answer_is_lost_is_reported_uncertain(worker_comman
         # The value is already published when the commander releases; the REPLY
         # has not left yet. Closing the worker's socket here is the lost answer.
         real_release()
-        worker.stream.writer.close()
+        worker.member.connected.transport.writer.close()
 
     commander.global_lock.release = release_then_lose_the_wire
     try:

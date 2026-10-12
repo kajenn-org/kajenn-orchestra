@@ -491,7 +491,7 @@ async def test_a_blocked_worker_that_dies_takes_its_state_with_it(make_group, co
 
     kill_process(newborn.process)
     await wait_for(lambda: not newborn.process.alive)
-    await newborn.connector.stop()
+    newborn.connector.stop()
     assert third.state == "running"
 
 

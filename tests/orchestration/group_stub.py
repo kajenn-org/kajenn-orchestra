@@ -28,16 +28,24 @@ placement of its users
 (``user_worker_map``, ``None`` meaning "to be assigned", written by the chain
 straight into the map) and taking a dead handler out of the group
 (``drop_worker`` — silent here on a name it does not carry, where the real one is
-LOUD). Everything the tests assert about the group is asserted on these.
+LOUD). Everything the tests assert about the group is asserted on these. The bus
+is the real group's own: the same dispatcher, the same member, the same three
+methods, so a process under this stub joins exactly as it joins a real group.
 """
 
 from __future__ import annotations
 
+import asyncio
+import logging
+import secrets
 from pathlib import Path
 from typing import Any
 
-from kajenn_orchestra.orchestration import GroupEnvelopeHandler, SpaCommander
+import kbus
+
+from kajenn_orchestra.orchestration import GroupEnvelopeHandler, GroupHandler, SpaCommander
 from kajenn_orchestra.orchestration.group_handler import GroupDispatcher
+from kajenn_orchestra.orchestration.worker_connector import GROUP_MEMBER
 
 
 class GroupStub:
@@ -48,7 +56,12 @@ class GroupStub:
             workers are given.
         name: the group's name.
         spa_commander: an existing vertex to hang under; one of its own when None.
+        instance_dir: where the bus socket goes; beside the deposit when None.
     """
+
+    open_bus = GroupHandler.open_bus
+    serve_worker_call = GroupHandler.serve_worker_call
+    on_member_lost = GroupHandler.on_member_lost
 
     def __init__(
         self,
@@ -56,8 +69,21 @@ class GroupStub:
         *,
         name: str = "standard",
         spa_commander: SpaCommander | None = None,
+        instance_dir: str | Path | None = None,
     ) -> None:
         self.name = name
+        self.worker_settings = {
+            "instance_dir": instance_dir or Path(frozen_users_path).parent / "bus"
+        }
+        self.bus = kbus.Dispatcher({})
+        self.bus.on_disconnect(self.on_member_lost)
+        self.bus_member = kbus.Member(
+            GROUP_MEMBER, secret=secrets.token_hex(32), handler=self.serve_worker_call
+        )
+        self.bus.secrets[GROUP_MEMBER] = self.bus_member.secret
+        self.bus_path: Path | None = None
+        self._bus_lock = asyncio.Lock()
+        self._logger = logging.getLogger(__name__)
         self.spa_commander = spa_commander or SpaCommander(frozen_users_path)
         self.envelope_handler = GroupEnvelopeHandler(self, self.spa_commander.envelope_handler)
         self.group_dispatcher = GroupDispatcher(self)

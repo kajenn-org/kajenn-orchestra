@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kajenn-orchestra"
-version = "0.4.5"
+version = "0.5.0"
 description = "Orchestration for kajenn: SPA application, worker pool, sticky routing, freeze and reassignment"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -36,6 +36,7 @@ dependencies = [
     "genro-toolbox>=0.17.0",
     "genro-tytx>=0.16.1",
     "genro-routes>=0.30.1",
+    "kajenn-kbus>=0.1.2",
     "psutil>=6.0",
 ]
 
