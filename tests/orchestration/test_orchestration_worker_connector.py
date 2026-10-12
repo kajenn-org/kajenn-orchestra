@@ -34,11 +34,11 @@ from typing import Any
 import kbus
 import pytest
 
-from tests.orchestration.message_helpers import join_bus, present
+from tests.orchestration.message_helpers import join_bus, join_worker, present
 
-from kajenn_orchestra.orchestration import WorkerConnector
+from kajenn_orchestra.orchestration import SpaWorker, WorkerConnector
 from kajenn_orchestra.orchestration.lane_payload import LanePayload
-from kajenn_orchestra.orchestration.worker_connector import GROUP_MEMBER
+from kajenn_orchestra.orchestration.worker_connector import GROUP_MEMBER, CommanderCallFailed
 
 from .conftest import wait_for
 from .group_stub import GroupStub
@@ -198,6 +198,24 @@ async def test_a_reply_after_the_deadline_is_folded_and_the_order_is_not_cancell
     assert handler.envelopes[1]["worker_events"] == [{"op": "user_frozen", "user": "mario"}]
 
     await child.close()
+
+
+async def test_a_worker_the_group_no_longer_has_is_refused_and_fails_its_call(
+    connector, group
+):
+    """The group refuses a caller it dropped; the worker reads that as a failed call."""
+    worker = SpaWorker("standard_0001", freeze_handler=None)
+    try:
+        await join_worker(worker, connector.url)
+        group.worker_handler = None
+
+        with pytest.raises(CommanderCallFailed, match="not a worker of group standard"):
+            await worker.call("/group/announce", {})
+
+        await worker.member.close()
+    finally:
+        worker.traffic_pool.shutdown()
+        worker.service_pool.shutdown()
 
 
 async def test_a_call_the_handler_has_no_hook_for_comes_back_as_an_error(connector, handler):
