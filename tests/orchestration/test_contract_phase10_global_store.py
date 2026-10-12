@@ -148,7 +148,7 @@ async def test_the_waiters_are_served_in_order_and_see_the_previous_release(
 
     # The second's call is on the wire and unanswered: it is parked on the lock,
     # which the first still holds.
-    await wait_for(lambda: bool(second_worker_commander_lane.worker._parent_calls))
+    await wait_for(lambda: bool(second_worker_commander_lane.worker_handler.connector._service_tasks))
     assert second_read == []
 
     release_now.set()

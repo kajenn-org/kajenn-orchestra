@@ -88,7 +88,8 @@ async def make_group(short_root, commander, repo_on_pythonpath):
             if worker_handler.process is not None:
                 kill_process(worker_handler.process)
                 await wait_for(lambda: not worker_handler.process.alive)
-            await worker_handler.connector.stop()
+            worker_handler.connector.stop()
+        await group.bus.close()
 
 
 @pytest.fixture

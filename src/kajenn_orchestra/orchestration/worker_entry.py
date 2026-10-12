@@ -12,23 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""The worker process: one child, one wire, one worker, nothing else.
+"""The worker process: one child, one member, one worker, nothing else.
 
 ``python -m kajenn_orchestra.orchestration.worker_entry`` is what a WorkerHandler
-spawns. The child is **monolingual**: it speaks only its handler's socket — no
+spawns. The child is **monolingual**: it speaks only its group's bus — no
 HTTP port, no uvicorn, no second door. Its whole configuration arrives in the
 ``KAJENN_WORKER`` environment variable as one JSON object, the seven keys
 the handler writes::
 
     {"name": "standard_0001",
-     "uds_url": "uds:/tmp/gnr_x/standard_0001.sock",
+     "kbus_url": "unix://standard_0001:<token>@/tmp/gnr_x/standard.sock",
      "frozen_users_path": "/var/lib/gnr/frozen_users",
      "main_threadpool_size": 8,
      "aux_threadpool_size": 2,
      "worker_class": "kajenn_orchestra.orchestration.spa_worker:SpaWorker",
      "kwargs": {"group": "standard"}}
 
-``name``, ``uds_url`` and ``frozen_users_path`` are mandatory — the handler
+``name``, ``kbus_url`` and ``frozen_users_path`` are mandatory — the handler
 always knows all three — and a missing or malformed variable is a spawn
 contract violation: the process says so and exits, never guesses a default.
 ``worker_class`` is a ``module.path:ClassName`` reference and ``kwargs`` is the
@@ -47,14 +47,15 @@ declare it: it hosts no engine.
 value. The server pins the sync dispatch when it is built, and so does this
 child — before its loop exists, so every task it spawns inherits the pin.
 
-The life is one ``asyncio.run``: build the worker, connect to the socket it was
-given, present it (pid and config echo, the answer bringing the whole global
-store), then read envelopes until the wire ends. Two deaths reach that end. The
-worker leaves on its own — ``quit`` closed the wire from this side — and there
-is nothing left to do. Or the wire dies under it: the parent is gone, this
-process is an orphan, and the D8 self-defense runs — everybody into the deposit,
-then out. Either way the exit code is 0: whoever is watching reads a clean exit
-as "this child is gone", not as a crash to throttle.
+The life is one ``asyncio.run``: build the worker, join the group's bus as a
+``kbus.Member`` named after it with the token of its URL, present it (pid and
+config echo), then wait until the member's connection ends. Two deaths reach
+that end. The worker leaves on its own — ``quit`` closed the member from this
+side — and there is nothing left to do. Or the connection dies under it: the
+parent is gone, this process is an orphan, and it leaves saving nothing — a
+process that lost its member is not vouched for. Either way the exit code is 0:
+whoever is watching reads a clean exit as "this child is gone", not as a crash
+to throttle.
 
 ``WorkerEntry`` is importable and testable on its own; the ``main()`` at the
 bottom is the thin ``python -m`` shell around it.
@@ -70,9 +71,9 @@ import os
 import sys
 from typing import Any
 
+import kbus
 from genro_toolbox.smartasync import set_sync
 
-from kajenn.kbus.frame import FrameStream
 from .freeze_handler import FreezeHandler
 from .spa_worker import SpaWorker
 from .worker_handler import WORKER_ENV_VAR
@@ -82,7 +83,7 @@ from .worker_handler import WORKER_ENV_VAR
 DEFAULT_WORKER_CLASS = "kajenn_orchestra.orchestration.spa_worker:SpaWorker"
 
 #: The keys the child cannot invent for itself if they are missing.
-REQUIRED_KEYS = ("name", "uds_url", "frozen_users_path")
+REQUIRED_KEYS = ("name", "kbus_url", "frozen_users_path")
 
 __all__ = ["DEFAULT_WORKER_CLASS", "REQUIRED_KEYS", "WorkerEntry"]
 
@@ -106,7 +107,7 @@ class WorkerEntry:
         set_sync()
         self.config = self.read_config() if config is None else config
         self.name: str = self.config["name"]
-        self.uds_url: str = self.config["uds_url"]
+        self.kbus_url: str = self.config["kbus_url"]
         self.frozen_users_path: str = self.config["frozen_users_path"]
         self.main_threadpool_size: int | None = self.config.get("main_threadpool_size")
         self.aux_threadpool_size: int | None = self.config.get("aux_threadpool_size")
@@ -184,22 +185,30 @@ class WorkerEntry:
             **kwargs,
         )
 
-    async def connect(self) -> FrameStream:
-        """Open the wire to the handler's socket.
+    async def connect(self) -> kbus.Member:
+        """Join the group's bus as the member the URL names, served by the worker.
 
         Returns:
-            The frame codec over that connection.
+            The connected member, already handed to the worker.
+
+        Raises:
+            kbus.Rejected: the token is not the one the group minted last.
         """
-        reader, writer = await asyncio.open_unix_connection(self.uds_url.removeprefix("uds:"))
-        return FrameStream(reader, writer)
+        scheme, _, rest = self.kbus_url.partition("://")
+        credentials, _, location = rest.partition("@")
+        name, _, token = credentials.partition(":")
+        member = kbus.Member(name, secret=token, handler=self.worker.serve_call)
+        self.worker.attach_member(member)
+        await member.connect(f"{scheme}://{location}")
+        return member
 
     async def serve(self) -> None:
-        """Build, present, serve — and leave when the wire dies first.
+        """Build, present, serve — and leave when the member's connection ends first.
 
         Sets ``worker``. Returns when the worker has left: on its own decision,
-        or because the wire under it was gone, which saves nothing. A worker that
-        declared BOTH hosted seams dies before the wire exists: that is a
-        contradiction, not a choice.
+        or because the connection under it was gone, which saves nothing. A
+        worker that declared BOTH hosted seams dies before it joins the bus:
+        that is a contradiction, not a choice.
         """
         self.worker = self.build_worker()
         # The one configuration error the boot catches: two seams assigned at
@@ -208,12 +217,10 @@ class WorkerEntry:
         # request, and whose http CALL is refused by the property when it comes.
         if self.worker.asgi_app is not None and self.worker.wsgi_app is not None:
             self.worker.hosted_app_seam
-        self.worker.attach_stream(await self.connect())
+        member = await self.connect()
         await self.worker.send_presentation(self.config)
-        self.logger.info(
-            "Worker %s: serving on %s (pid %s)", self.name, self.uds_url, os.getpid()
-        )
-        await self.worker.receive_frames()
+        self.logger.info("Worker %s: serving on its group's bus (pid %s)", self.name, os.getpid())
+        await member.connected.wait_closed()
         if not self.worker.exited:
             await self.worker.on_wire_lost()
         self.logger.info("Worker %s: exited cleanly", self.name)

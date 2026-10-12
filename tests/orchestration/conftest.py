@@ -14,11 +14,11 @@
 
 """The common ground of the orchestration tests: the root, the path, the wait.
 
-``worker_commander_lane`` is a live lane — a real worker on a real UDS under a real
-commander — for the tests that exercise the site's verbs, which now place calls
+``worker_commander_lane`` is a live lane — a real worker on a real group bus under a
+real commander — for the tests that exercise the site's verbs, which now place calls
 on it. ``short_root`` is a temporary directory whose name fits inside the system's cap
 on a UDS path — about a hundred characters, which pytest's own ``tmp_path`` is
-already past, and the very reason worker names are short. ``repo_on_pythonpath``
+already past, and the very reason group names are short. ``repo_on_pythonpath``
 puts this repository where a spawned child can import the stub modules of the
 test package from. ``wait_for`` polls a condition instead of sleeping a guessed
 amount: a process dying, a wire ending, a round landing — none has a duration.
@@ -37,19 +37,17 @@ from pathlib import Path
 
 import pytest
 
-from tests.orchestration.frame_helpers import control_frame, read_control
+from tests.orchestration.message_helpers import incoming, join_worker, read_control
 
-from kajenn.kbus.frame import Frame
 from kajenn_orchestra.orchestration import FreezeHandler, GroupHandler, SpaCommander, SpaWorker
-from kajenn_orchestra.orchestration import spa_worker as spa_worker_module
+from kajenn_orchestra.orchestration.lane_payload import LanePayload
 from kajenn_orchestra.orchestration.worker_connector import (
-    CALL_METHOD,
     ENVELOPE_SLOT_WORKER_EVENTS,
-    REPLY_METHOD,
+    GROUP_MEMBER,
 )
 from kajenn_orchestra.orchestration.worker_handler import ANNOUNCE_OP_PATH, WorkerHandler
 
-#: The name the lane's handler and worker share: short, because a UDS path is.
+#: The name the lane's handler and worker share.
 WORKER_NAME = "standard_0001"
 
 
@@ -97,68 +95,75 @@ def repo_on_pythonpath(monkeypatch):
 
 
 class XT_Wire:
-    """The handler's side of the wire, as a worker sees it: it keeps what is written.
+    """The group's end of the bus, as a worker sees it: it keeps what is sent.
 
-    A CALL the worker places is answered at once with an empty result, on the
-    worker's own loop, so ``call`` resolves the way it does on a live lane. Tests
-    read each REPLY and each announcement off ``frames``.
+    It stands as the worker's ``member``. A call the worker places is kept and
+    answered at once with an empty result, the way a live group answers it.
+    ``serve`` hands the worker one call of the group's the way kbus does — on a
+    task of its own — and gives back the reply its answer lands on. Tests read
+    each answer and each announcement off ``replies`` and ``placed``.
     """
 
-    class XT_Writer:
-        """What ``exit_process`` closes: the transport under a real ``FrameStream``."""
+    class XT_Reply:
+        """Where one call's answer lands: ``message``, once it is sent."""
 
-        def __init__(self) -> None:
-            self.closed = False
+        def __init__(self, wire) -> None:
+            self.wire = wire
+            self.message = None
 
-        def close(self) -> None:
-            self.closed = True
+        async def send(self, message) -> None:
+            if self.message is not None:
+                raise RuntimeError("call already answered")
+            self.message = message
+            self.wire.replies.append(message)
 
     def __init__(self, worker: SpaWorker) -> None:
         self.worker = worker
-        self.frames: list[Frame] = []
-        self.writer = self.XT_Writer()
+        #: Never connected: ``exit_process`` has no connection to close.
+        self.connection = None
+        self.placed: list[tuple[str, object]] = []
+        self.replies: list[object] = []
+        self._tasks: set[asyncio.Task] = set()
 
-    async def write(self, frame: Frame) -> None:
-        self.frames.append(frame)
-        if frame.method == CALL_METHOD:
-            self.worker.handle_frame(
-                control_frame(id=frame.id, method=REPLY_METHOD, path=frame.path, data={"result": {}})
-            )
+    async def call(self, route: str, message):
+        self.placed.append((route, message))
+        return LanePayload().control_message({"result": {}})
 
-    def replies(self) -> list[Frame]:
-        return [frame for frame in self.frames if frame.method == REPLY_METHOD]
+    def serve(self, path: str, data=None) -> "XT_Wire.XT_Reply":
+        reply = self.XT_Reply(self)
+        task = asyncio.get_running_loop().create_task(
+            self.worker.serve_call(incoming(path, data), reply)
+        )
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+        return reply
 
-    def calls(self, path: str) -> list[Frame]:
-        return [
-            frame for frame in self.frames if frame.method == CALL_METHOD and frame.path == path
-        ]
-
-    def reply_to(self, frame_id: str) -> Frame | None:
-        return next((frame for frame in self.replies() if frame.id == frame_id), None)
+    def calls(self, path: str) -> list:
+        return [message for route, message in self.placed if route == f"{GROUP_MEMBER}.{path}"]
 
     def announced_events(self) -> list[dict]:
         """Every worker event the announcements carried, in order."""
         return [
             event
-            for frame in self.calls(ANNOUNCE_OP_PATH)
-            for event in read_control(frame)[ENVELOPE_SLOT_WORKER_EVENTS]
+            for message in self.calls(ANNOUNCE_OP_PATH)
+            for event in read_control(message)[ENVELOPE_SLOT_WORKER_EVENTS]
         ]
 
 
 def attach_wire(worker: SpaWorker) -> XT_Wire:
-    """Give a worker a stub wire and a slot: the shape a unit test drives it in.
+    """Give a worker a stub member and a slot: the shape a unit test drives it in.
 
-    The stream is set directly and not through ``attach_stream``, which reads the
+    The member is set directly and not through ``attach_member``, which reads the
     running loop: a sync fixture has none, and the stub needs none.
     """
     wire = XT_Wire(worker)
-    worker.stream = wire
+    worker.member = wire
     worker.open_request_slot()
     return wire
 
 
 class XT_WorkerCommanderLane:
-    """A worker and its real handler on one UDS, the commander above it.
+    """A worker and its real handler on the group's bus, the commander above it.
 
     Args:
         commander: the vertex the lane calls reach.
@@ -182,16 +187,13 @@ class XT_WorkerCommanderLane:
             worker_name, freeze_handler=freeze_handler, deposit_lock_retry_interval=0.01
         )
         self.request_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="xt-request")
-        self._reader_task = None
 
     async def open(self) -> None:
-        """Bind, connect, present, and put the worker's read loop on the air."""
+        """Mint the URL, join the bus, present."""
         connector = self.worker_handler.connector
         await connector.start()
-        reader, writer = await asyncio.open_unix_connection(str(connector.socket_path))
-        self.worker.attach_stream(spa_worker_module.FrameStream(reader, writer))
+        await join_worker(self.worker, connector.url)
         await self.worker.send_presentation({})
-        self._reader_task = asyncio.create_task(self.worker.receive_frames())
         await connector.wait_connected()
         # A request slot on both sides a test drives verbs from: the request
         # thread, and the loop context the fixture is built in.
@@ -199,15 +201,10 @@ class XT_WorkerCommanderLane:
         self.worker.open_request_slot()
 
     async def close(self) -> None:
-        if self._reader_task is not None:
-            self._reader_task.cancel()
-            try:
-                await self._reader_task
-            except asyncio.CancelledError:
-                pass
         self.request_pool.shutdown(wait=True)
+        self.worker_handler.connector.stop()
         self.worker.exit_process()
-        await self.worker_handler.connector.stop()
+        await self.worker.member.connected.wait_closed()
         self.group.worker_handler_map.pop(self.worker_name, None)
 
     async def verb(self, name, *args, **kwargs):
@@ -283,3 +280,4 @@ async def worker_commander_lane(short_root, tmp_path):
     await lane.open()
     yield lane
     await lane.close()
+    await group.bus.close()

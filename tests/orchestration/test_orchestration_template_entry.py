@@ -79,7 +79,7 @@ def launch_line(**overrides: Any) -> str:
 def fork_line(name: str = WORKER_NAME) -> str:
     """One fork request: a worker's spawn payload, cut to what these tests read back."""
     return json.dumps(
-        {"name": name, "uds_url": "uds:/nowhere.sock", "frozen_users_path": "/nowhere"}
+        {"name": name, "kbus_url": "unix://nobody:token@/nowhere.sock", "frozen_users_path": "/nowhere"}
     ) + "\n"
 
 

@@ -12,21 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""SpaWorker on the wire: the shell, the envelopes, the photo, the wire that falls.
+"""SpaWorker on the bus: the shell, the envelopes, the photo, the bus that falls.
 
-Everything here is real except the level above the wire: a real Unix socket, the
-package's own connector and frames, the package's own ``WorkerEntry`` running
+Everything here is real except the level above the connector: a real group bus,
+the package's own connector and payloads, the package's own ``WorkerEntry`` running
 the worker exactly as the spawned child does — it is only run on this same loop
 instead of in another process, which is what makes the story watchable step by
 step. What is doubled is the handler above the connector, because the
 GroupHandler and the Commander are Macro 3's.
 
 The last test spawns a REAL child through the M1 ``WorkerHandler``, and there the
-entry is the process it is meant to be: the site answers over the wire, the wire
+entry is the process it is meant to be: the site answers over the bus, the bus
 is then taken away, and the orphan ends its own process leaving the deposit
-empty — a process that lost its wire saves nothing.
+empty — a process that lost its member saves nothing.
 
-The sockets and the deposit live under a short ``mkdtemp`` root: the system caps
+The bus socket and the deposit live under a short ``mkdtemp`` root: the system caps
 a UDS path at about a hundred characters and pytest's own directory is already
 past it.
 """
@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import os
 import time
 from http.cookies import SimpleCookie
@@ -46,8 +45,10 @@ import pytest
 
 
 from kajenn_orchestra.spa_app import SPA_CONNECTION_ID_COOKIE
-from tests.orchestration.frame_helpers import call_endpoint, control_frame
-from kajenn.kbus.frame import FrameStream
+import kbus
+
+from tests.orchestration.message_helpers import call_endpoint
+
 from kajenn_orchestra.orchestration import (
     FreezeHandler,
     SpaWorker,
@@ -55,7 +56,6 @@ from kajenn_orchestra.orchestration import (
     WorkerHandler,
 )
 from kajenn_orchestra.orchestration.worker_connector import (
-    REPLY_METHOD,
     ENVELOPE_SLOT_WORKER_SNAPSHOT,
     WorkerConnector,
 )
@@ -135,7 +135,11 @@ class HandlerStub:
     too, and counts it.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, group_handler: GroupStub) -> None:
+        self.name = WORKER_NAME
+        self.group_handler = group_handler
+        self.connector = WorkerConnector(self)
+        group_handler.worker_handler = self
         self.worker_snapshot: dict[str, Any] | None = None
         self.announced: list[dict[str, Any]] = []
         self.lost = 0
@@ -156,18 +160,18 @@ class HandlerStub:
 
 
 class Wire:
-    """One worker's socket with its handler above it, both on this same loop.
+    """One worker's place on a group bus with its handler above it, all on this same loop.
 
-    ``take`` runs the package's own ``WorkerEntry`` against this socket, so what
-    is under test is the very shell the spawned child runs — its worker is
-    reachable afterwards for the assertions the wire alone cannot make.
+    ``take`` runs the package's own ``WorkerEntry`` against this bus, so what is
+    under test is the very shell the spawned child runs — its worker is
+    reachable afterwards for the assertions the bus alone cannot make.
     """
 
-    def __init__(self, socket_path: Path, deposit_path: Path) -> None:
-        self.socket_path = socket_path
+    def __init__(self, bus_dir: Path, deposit_path: Path) -> None:
         self.deposit_path = deposit_path
-        self.handler = HandlerStub()
-        self.connector = WorkerConnector(self.handler, socket_path)
+        self.group = GroupStub(deposit_path, instance_dir=bus_dir)
+        self.handler = HandlerStub(self.group)
+        self.connector = self.handler.connector
         self.entries: list[WorkerEntry] = []
         self.lives: list[asyncio.Task[None]] = []
 
@@ -175,7 +179,7 @@ class Wire:
         """The seven-key payload, exactly as a WorkerHandler writes it."""
         return {
             "name": WORKER_NAME,
-            "uds_url": self.connector.address,
+            "kbus_url": self.connector.url,
             "frozen_users_path": str(self.deposit_path),
             "main_threadpool_size": 4,
             "aux_threadpool_size": 1,
@@ -187,7 +191,7 @@ class Wire:
         await self.connector.start()
 
     async def take(self, worker_class: str = ECHO_WORKER, **kwargs: Any) -> SpaWorker:
-        """Run one worker's whole life against this wire, and hand it over."""
+        """Run one worker's whole life against this bus, and hand it over."""
         entry = WorkerEntry(config=self.spawn_config(worker_class, kwargs))
         self.entries.append(entry)
         self.lives.append(asyncio.create_task(entry.serve()))
@@ -195,45 +199,54 @@ class Wire:
         return entry.worker
 
     async def stop(self) -> None:
-        """Close the wire and let every worker on it finish its own end."""
-        await self.connector.stop()
+        """Take the bus away and let every worker on it finish its own end."""
+        self.connector.stop()
         for life in self.lives:
             life.cancel()
             try:
                 await life
             except asyncio.CancelledError:
                 pass
+        await self.group.bus.close()
 
 
 class ParentWire:
-    """A bare parent: it answers the presentation, and it can break the protocol.
+    """A bare parent: it answers every call, and it can break the protocol.
 
-    No connector above it, so what it proves is what a worker does when the thing
-    on the other end stops speaking the language — a picture the package's own
-    wire, which never writes nonsense, cannot produce.
+    No dispatcher above it — a kbus listener whose one connection answers the
+    admission and the presentation with an empty message — so what it proves is
+    what a worker does when the thing on the other end stops speaking the
+    language: a picture the package's own bus, which never writes nonsense,
+    cannot produce.
     """
 
     def __init__(self, socket_path: Path, deposit_path: Path) -> None:
         self.socket_path = socket_path
         self.deposit_path = deposit_path
-        self.server: asyncio.Server | None = None
-        self.stream: FrameStream | None = None
+        self.listener: Any = None
+        self.connection: Any = None
         self.entries: list[WorkerEntry] = []
         self.lives: list[asyncio.Task[None]] = []
-
-    @property
-    def address(self) -> str:
-        return f"uds:{self.socket_path}"
+        self._accepting: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
-        self.server = await asyncio.start_unix_server(self.serve, path=str(self.socket_path))
+        self.listener = await kbus.core.listen(f"unix://{self.socket_path}").__aenter__()
+        self._accepting = asyncio.create_task(self.accept())
+
+    async def accept(self) -> None:
+        async for connection in self.listener:
+            connection.handler = self.answer
+            self.connection = connection
+
+    async def answer(self, message: kbus.Message, reply: Any) -> None:
+        await reply.send(kbus.Message())
 
     async def take(self) -> SpaWorker:
         """Run one worker's life against this parent, and hand it over presented."""
         entry = WorkerEntry(
             config={
                 "name": WORKER_NAME,
-                "uds_url": self.address,
+                "kbus_url": f"unix://{WORKER_NAME}:any-token@{self.socket_path}",
                 "frozen_users_path": str(self.deposit_path),
                 "main_threadpool_size": 2,
                 "aux_threadpool_size": 1,
@@ -243,42 +256,28 @@ class ParentWire:
         )
         self.entries.append(entry)
         self.lives.append(asyncio.create_task(entry.serve()))
-        await wait_for(lambda: entry.worker is not None and entry.worker.stream is not None)
+        await wait_for(lambda: entry.worker is not None and entry.worker.member is not None
+                       and entry.worker.member.connection is not None)
         return entry.worker
 
     async def stop(self) -> None:
-        """Let the workers go first: a server waits for the connections it holds."""
+        """Let the workers go first, then the connection and the listener."""
         for life in self.lives:
             life.cancel()
             try:
                 await life
             except asyncio.CancelledError:
                 pass
-        if self.stream is not None:
-            await self.stream.close()
-        self.server.close()
-        await self.server.wait_closed()
+        if self.connection is not None:
+            await self.connection.close()
+        self._accepting.cancel()
+        await self.listener.close()
 
     async def send_nonsense(self) -> None:
-        """Write something that is not a wsx envelope: the protocol violation drill."""
-        payload = b"this is not a wsx envelope"
-        self.stream.writer.write(len(payload).to_bytes(4, "big") + payload)
-        await self.stream.writer.drain()
-
-    async def serve(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-        stream = self.stream = FrameStream(reader, writer)
-        while True:
-            frame = await stream.read()
-            if frame is None:
-                return
-            await stream.write(
-                control_frame(
-                    id=frame.id,
-                    method=REPLY_METHOD,
-                    path=frame.path,
-                    data={},
-                )
-            )
+        """Write something that is not a kbus frame: the protocol violation drill."""
+        writer = self.connection.transport.writer
+        writer.write(b"this is not a kbus frame, not even its header")
+        await writer.drain()
 
 
 def http_call(
@@ -342,7 +341,7 @@ def deposit(short_root):
 
 @pytest.fixture
 async def wire(short_root, deposit):
-    one = Wire(short_root / "w.sock", short_root / "frozen_users")
+    one = Wire(short_root / "w", short_root / "frozen_users")
     await one.start()
     yield one
     await one.stop()
@@ -682,20 +681,8 @@ async def test_the_freeze_order_for_a_stranger_is_refused_in_the_reply(wire, dep
 
 
 # ----------------------------------------------------------------------
-# The envelope that has no lane
+# The protocol that breaks
 # ----------------------------------------------------------------------
-
-
-async def test_an_envelope_that_is_not_an_order_is_denounced_and_nothing_else(wire, caplog):
-    caplog.set_level(logging.WARNING)
-    worker = await wire.take()
-
-    # A REPLY has a lane of its own now — the answer to a call this worker
-    # placed upward — so what is denounced is whatever is neither of the two.
-    worker.handle_frame(control_frame(method="EVENT", path="/op/anything"))
-
-    assert "unexpected envelope EVENT" in caplog.text
-    assert worker.exited is False
 
 
 async def test_a_violation_of_the_protocol_ends_the_wire_like_a_death(parent_wire):
@@ -715,7 +702,7 @@ async def test_a_dead_wire_ends_the_worker_and_writes_nothing_to_the_deposit(wir
     worker = await wire.take()
     await call_endpoint(wire.connector, "/site/invoices", http_call("cid-a", "mario"), timeout=5.0)
 
-    await wire.connector.stop()
+    await wire.group.bus.close()
 
     await wait_for(lambda: worker.exited)
     assert deposit.user_folders == set()
@@ -747,7 +734,7 @@ def test_a_payload_that_is_not_an_object_is_refused_by_what_it_is(monkeypatch):
 def test_a_payload_short_of_a_key_says_which_one(monkeypatch):
     monkeypatch.setenv(WORKER_ENV_VAR, '{"name": "standard_0001"}')
 
-    with pytest.raises(SystemExit, match="missing uds_url, frozen_users_path"):
+    with pytest.raises(SystemExit, match="missing kbus_url, frozen_users_path"):
         WorkerEntry()
 
 
@@ -757,7 +744,7 @@ def test_the_payload_is_read_from_the_environment_the_handler_wrote(monkeypatch,
         json.dumps(
             {
                 "name": WORKER_NAME,
-                "uds_url": "uds:/nowhere.sock",
+                "kbus_url": "unix://standard_0001:token@/nowhere.sock",
                 "frozen_users_path": str(short_root / "frozen_users"),
                 "main_threadpool_size": 8,
                 "aux_threadpool_size": 2,
@@ -779,7 +766,7 @@ def test_a_worker_class_that_is_not_a_reference_is_refused(short_root):
     entry = WorkerEntry(
         config={
             "name": WORKER_NAME,
-            "uds_url": "uds:/nowhere.sock",
+            "kbus_url": "unix://standard_0001:token@/nowhere.sock",
             "frozen_users_path": str(short_root / "frozen_users"),
             "worker_class": "kajenn_orchestra.orchestration.spa_worker.SpaWorker",
         }
@@ -793,7 +780,7 @@ def test_the_payload_naming_no_class_builds_the_worker_of_the_house(short_root):
     entry = WorkerEntry(
         config={
             "name": WORKER_NAME,
-            "uds_url": "uds:/nowhere.sock",
+            "kbus_url": "unix://standard_0001:token@/nowhere.sock",
             "frozen_users_path": str(short_root / "frozen_users"),
             "kwargs": {"group": GROUP},
         }
@@ -811,7 +798,7 @@ def test_the_group_engine_handed_to_the_entry_reaches_the_worker(short_root):
     entry = WorkerEntry(
         config={
             "name": WORKER_NAME,
-            "uds_url": "uds:/nowhere.sock",
+            "kbus_url": "unix://standard_0001:token@/nowhere.sock",
             "frozen_users_path": str(short_root / "frozen_users"),
             "worker_class": ENGINE_WORKER,
             "kwargs": {"group": GROUP},
@@ -828,7 +815,7 @@ def test_no_group_engine_is_passed_to_a_worker_that_was_handed_none(short_root):
     entry = WorkerEntry(
         config={
             "name": WORKER_NAME,
-            "uds_url": "uds:/nowhere.sock",
+            "kbus_url": "unix://standard_0001:token@/nowhere.sock",
             "frozen_users_path": str(short_root / "frozen_users"),
             "worker_class": ENGINE_WORKER,
             "kwargs": {"group": GROUP},
@@ -860,11 +847,13 @@ async def handler(short_root, repo_on_pythonpath):
         worker_kwargs={"group": GROUP},
         process_ping_timeout=10.0,
     )
+    worker_handler.group_handler.worker_handler = worker_handler
     yield worker_handler
     if worker_handler.process is not None:
         kill_process(worker_handler.process)
         await wait_for(lambda: not worker_handler.process.alive)
-    await worker_handler.connector.stop()
+    worker_handler.connector.stop()
+    await worker_handler.group_handler.bus.close()
 
 
 async def test_a_real_child_serves_its_site_and_ends_alone_when_the_wire_goes(handler, deposit):
@@ -883,10 +872,11 @@ async def test_a_real_child_serves_its_site_and_ends_alone_when_the_wire_goes(ha
     assert body_of(reply) == "GET /invoices for mario"
     assert announced(reply) == ["new_user", "new_connection"]
 
-    # The wire is taken away under it. A process nobody can speak to any more is
+    # The bus is taken away under it. A process nobody can speak to any more is
     # not vouched for, so it saves nothing and ends its process by itself; its
     # user is lost at the vertex.
-    await handler.connector.stop()
+    handler.connector.stop()
+    await handler.group_handler.bus.close()
 
     await wait_for(lambda: not handler.process.alive, timeout=15.0)
     assert handler.process.exit_code == 0

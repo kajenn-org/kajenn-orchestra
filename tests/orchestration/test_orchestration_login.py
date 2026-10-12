@@ -32,7 +32,7 @@ import time
 from typing import Any
 
 import pytest
-from tests.orchestration.frame_helpers import read_control
+from tests.orchestration.message_helpers import read_control
 from genro_bag import Bag
 
 from kajenn_orchestra.orchestration import (
