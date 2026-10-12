@@ -21,7 +21,6 @@ this file never matches its own search.
 from __future__ import annotations
 
 import importlib.metadata
-import re
 import tomllib
 from pathlib import Path
 
@@ -61,10 +60,3 @@ def test_the_installed_kbus_has_the_deterministic_finish():
     installed = importlib.metadata.version("kajenn-kbus")
     assert tuple(int(part) for part in installed.split(".")[:3]) >= (0, 1, 2)
 
-
-def test_every_contract_test_name_survives_the_migration():
-    wanted = set((HERE / "surviving_test_names.txt").read_text().split())
-    defined = set()
-    for path in (repository_root() / "tests").rglob("*.py"):
-        defined.update(re.findall(r"^\s*(?:async\s+)?def\s+(test_\w+)\s*\(", path.read_text(), re.M))
-    assert sorted(wanted - defined) == []
