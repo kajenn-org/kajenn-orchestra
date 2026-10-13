@@ -264,10 +264,10 @@ class GlobalStoreLease:
                 {"request_id": self.request_id, "apply": True, "value": text},
             )
         except ConnectionError as exc:
-            # The wire ended after the commit left: a parked CALL is failed with
-            # ConnectionError, a write on a dead socket raises one of its
-            # subclasses. Anything else — the commander's own refusal included —
-            # propagates as it is.
+            # The member ended after the commit left: the call in flight is
+            # failed with ConnectionError, the mapping of the kbus link errors.
+            # Anything else — the commander's own refusal included — propagates
+            # as it is.
             raise GlobalStoreCommitUnconfirmed(self.request_id, self.key, exc) from exc
 
     async def _abort(self) -> None:

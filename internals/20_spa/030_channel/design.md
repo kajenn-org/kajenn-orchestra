@@ -1,12 +1,16 @@
-# KajennBus
+# Group bus
 
-**Version**: 0.1 · **Last Updated**: 2026-09-08 · **Status**: 🔴 DA REVISIONARE
+**Version**: 0.2 · **Last Updated**: 2026-10-12 · **Status**: 🔴 DA REVISIONARE
 
-Processes exchange framed messages over Unix sockets through channels.
+Processes exchange messages over a Unix socket through the `kbus` library
+(kajenn-kbus ≥ 0.1.2).
 
-The wire between processes: `Frame` / `FrameStream` over Unix sockets,
-`KajennBusHub` / `KajennBusClient` / `LocalKajennBus`. Consumed by the
-communication mixin (`parent_kbus`) and by the orchestration worker wire
-(`worker_connector`, presentation, the lane).
+History: until 0.4 the wire was kajenn's own framing over one Unix socket per
+worker, with a connector per socket correlating calls and replies by id. Since
+0.5.0 the transport is `kbus`: each group owns a `kbus.Dispatcher`, the group
+and its workers are members of it, and `kbus` owns framing, correlation,
+cancel and member admission. Orchestra keeps the routes, the payload codec
+(`LanePayload`), the presentation and the worker lifecycle.
 
-Interactions: orchestration (worker wire) · communication mixin · console (eval over the lane).
+Interactions: orchestration (worker wire, presentation, envelope chain) ·
+console (eval over a worker call).

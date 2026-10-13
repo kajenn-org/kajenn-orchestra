@@ -29,7 +29,7 @@ from typing import Any
 
 import pytest
 
-from tests.orchestration.frame_helpers import read_http_request, http_reply
+from tests.orchestration.message_helpers import read_http_request, http_reply
 from genro_routes import route
 
 from kajenn import AsgiServer
@@ -67,12 +67,12 @@ class ScriptedCommander(SpaCommander):
         self.started = False
 
     async def serve_request(
-        self, cid: str, http: dict[str, Any], *, hold_timeout: float
-    ) -> dict[str, Any]:
+        self, cid: str, path: str, http: Any, *, hold_timeout: float
+    ) -> Any:
         self.calls.append((cid, read_http_request(http)))
         if self.failure is not None:
             raise self.failure
-        return http_reply(http, self.reply)
+        return http_reply(self.reply)
 
 
 class ScriptedFront(SpaApplication):

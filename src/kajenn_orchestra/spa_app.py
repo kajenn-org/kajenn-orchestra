@@ -88,9 +88,9 @@ from genro_routes import RoutingClass, route
 
 from kajenn.asgi_endpoint import BufferedAsgiEndpoint
 from kajenn.application import ApplicationGrammar
-from kajenn.kbus.frame import Frame
+import kbus
 from kajenn.http_record import HttpRecord
-from kajenn.transport_limits import FrameTooLarge, HttpBodyTooLarge, http_max_body_size
+from kajenn.transport_limits import HttpBodyTooLarge, http_max_body_size
 from kajenn.config.handler import ConfigError
 from kajenn.exceptions import HTTPBadRequest, HTTPException, HTTPForbidden, HTTPNotFound
 from kajenn.lifespan import FatalBootError
@@ -108,6 +108,7 @@ from kajenn.server import QUITTING, REFUSED_RETRY_AFTER_SECONDS, RUNNING
 from .inspector_section import INSPECTOR_ENV_VAR, InspectorSection
 from .orchestration import AssignmentRefused, SiteFailedRequest, SpaCommander
 from .orchestration.group_policy import GroupPolicy, GroupPolicyError
+from .orchestration.lane_payload import LanePayload
 from .orchestration.spa_commander import SingleGroupRequired
 
 if TYPE_CHECKING:
@@ -1060,10 +1061,12 @@ class SpaApplication(RoutedApplication):
         local_response = True
         try:
             http = await self.pack_http(scope, receive, carried)
+            # kbus reads a colon of a route as the name of a linked instance.
+            path = "/site" + str(scope.get("path", "/")).replace(":", "%3A")
             reply = await self.commander.serve_request(
-                carried, http, hold_timeout=REQUEST_HOLD_MAX_SECONDS
+                carried, path, http, hold_timeout=REQUEST_HOLD_MAX_SECONDS
             )
-        except (FrameTooLarge, HttpBodyTooLarge):
+        except (kbus.FrameTooLarge, HttpBodyTooLarge):
             response = Response(content="Request too large", status_code=413)
         except AssignmentRefused as refusal:
             self._logger.warning("Front %s: %s", self.code, refusal)
@@ -1140,7 +1143,7 @@ class SpaApplication(RoutedApplication):
             headers=[("content-type", "text/plain; charset=utf-8")],
         )
 
-    def build_response(self, reply: Frame, carried: str | None) -> Response:
+    def build_response(self, reply: kbus.Message, carried: str | None) -> Response:
         """The outer response, rebuilt from the site's own answer.
 
         The cookie is written when the connection the site settled on is not the
@@ -1149,13 +1152,13 @@ class SpaApplication(RoutedApplication):
         that reused the connection it arrived with names none, and nothing is
         written.
         """
-        result = HttpRecord().decode_response(reply.payload)
+        result = HttpRecord().decode_response(LanePayload().decode_http(reply.payload)[1])
         response = Response(
             content=result["body"],
             status_code=int(result.get("status", 200)),
             headers=[(str(name), str(value)) for name, value in result.get("headers") or []],
         )
-        settled = reply.info.get("connection_id")
+        settled = reply.meta.get("connection_id")
         if settled is not None and settled != carried:
             response.set_cookie(
                 SPA_CONNECTION_ID_COOKIE,
@@ -1186,20 +1189,19 @@ class SpaApplication(RoutedApplication):
 
     async def pack_http(
         self, scope: Scope, receive: Receive, cid: str | None
-    ) -> Frame:
+    ) -> kbus.Message:
         """Pack routing facts and a bounded opaque HTTP record for the child.
 
         The headers are forwarded as they came: our cookie is ours to route on
         and the hosted site has no use for it — it reads its own, and the value
         in both is its own connection id anyway.
 
-        ``page_id`` and ``reply_path`` join the routing info only when the scope carries
+        ``page_id`` and ``reply_path`` join the envelope only when the scope carries
         them — a message born on a websocket does, a real HTTP request does not
         — and the endpoint writes them into the hosted scope under their genro names.
         """
-        info = {"format": "http", "cid": cid}
-        for key in ("genro.page_id", "genro.reply_path"):
-            if key in scope:
-                info[key.split(".")[1]] = scope[key]
-        return Frame(method="CALL", path="/site" + str(scope.get("path", "/")),
-                     info=info, payload=HttpRecord().encode_request(scope, await self.read_body(receive)))
+        envelope = {key.split(".")[1]: scope[key]
+                    for key in ("genro.page_id", "genro.reply_path") if key in scope}
+        record = HttpRecord().encode_request(scope, await self.read_body(receive))
+        return kbus.Message({"format": "http", "cid": cid},
+                            LanePayload().encode_http(envelope, record))

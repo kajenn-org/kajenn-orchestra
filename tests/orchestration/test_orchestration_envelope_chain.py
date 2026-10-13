@@ -113,7 +113,8 @@ async def handler(short_root, group):
     if worker_handler.process is not None:
         kill_process(worker_handler.process)
         await wait_for(lambda: not worker_handler.process.alive)
-    await worker_handler.connector.stop()
+    worker_handler.connector.stop()
+    await group.bus.close()
 
 
 async def test_the_photo_is_filed_by_the_bottom_layer_and_may_wait_for_its_round(handler, group):

@@ -16,19 +16,17 @@
 
 The worker of Macro 2 does not exist yet, so this is what the WorkerHandler
 launches: the smallest process that uses every foundation the way a worker will.
-It is TEST-ONLY, and it is not a fake — the wire is the package's own
-``FrameStream``, the deposit is the package's own ``FreezeHandler``, and the
+It is TEST-ONLY, and it is not a fake — the bus is the group's own
+``kbus.Dispatcher``, the deposit is the package's own ``FreezeHandler``, and the
 configuration is the very ``KAJENN_WORKER`` payload the handler writes.
 
-Its life: connect to the socket it was given, present itself with its pid and
-the configuration it received, and keep the whole global store that comes back
-in the answer. Its presentation already carries its first photo, and so does
+Its life: join the group's bus with the URL it was given, present itself with
+its pid and the configuration it received. Its presentation already carries its first photo, and so does
 every reply after it: the photo rides the envelope, in the
 ``worker_snapshot`` slot beside the payload. Then serve the parent — the health
 beat with its photo, the three deposit orders, and the order that makes it go
 mute. Everything it has to say travels in the answer to what was asked of it:
-the wire is asymmetric, orders down and answers up, and nothing here speaks
-unbidden.
+orders down and answers up, and nothing here speaks unbidden.
 
 **It reaches the deposit on its own side.** Nothing hands it a FreezeHandler:
 it builds one over ``frozen_users_path``, exactly as a worker in another process
@@ -36,8 +34,8 @@ must. What it writes there the parent reads back through a FreezeHandler of its
 own, over the same root.
 
 **Going mute is how it dies.** On ``/go_mute`` it answers that once and then
-stops answering, while still reading the wire — a process that is up and no
-longer serving, which is what the surveillance kills. Whatever it was holding in
+stops answering, while still on the bus — a process that is up and no longer
+serving, which is what the surveillance kills. Whatever it was holding in
 the deposit when the SIGKILL lands stays there: nothing in this stub tidies up,
 because nothing in the foundations does.
 
@@ -55,15 +53,13 @@ from typing import Any
 
 from genro_routes import RoutingClass, route
 
-from tests.orchestration.frame_helpers import control_frame, read_control
+import kbus
 
-from kajenn.kbus.frame import REGISTER_METHOD, REGISTER_PATH, Frame, FrameStream
+from tests.orchestration.message_helpers import join_bus, present
+
 from kajenn_orchestra.orchestration import FreezeHandler
-from kajenn_orchestra.orchestration.worker_connector import (
-    CALL_METHOD,
-    REPLY_METHOD,
-    ENVELOPE_SLOT_WORKER_SNAPSHOT,
-)
+from kajenn_orchestra.orchestration.lane_payload import LanePayload
+from kajenn_orchestra.orchestration.worker_connector import ENVELOPE_SLOT_WORKER_SNAPSHOT
 from kajenn_orchestra.orchestration.worker_handler import (
     WORKER_ENV_VAR,
 )
@@ -106,7 +102,7 @@ class XT_StubGroupOrders(RoutingClass):
 
 
 class ChildStub(RoutingClass):
-    """One scripted worker process: its wire, its deposit, and its mute switch."""
+    """One scripted worker process: its member, its deposit, and its mute switch."""
 
     def __init__(self) -> None:
         self.config = json.loads(os.environ[WORKER_ENV_VAR])
@@ -114,7 +110,7 @@ class ChildStub(RoutingClass):
         self.group = self.config["kwargs"]["group"]
         self.freeze_handler = FreezeHandler(self.config["frozen_users_path"])
         self.answering = True
-        self.stream: FrameStream | None = None
+        self.member: kbus.Member | None = None
         self.worker_events: list[dict[str, Any]] = []
         self.add_branches(
             [
@@ -133,63 +129,38 @@ class ChildStub(RoutingClass):
         return {"pid": os.getpid(), "name": self.name}
 
     async def live(self) -> None:
-        """Connect, present, then serve the parent until the wire ends.
+        """Join, present, then serve the parent until the member's connection ends.
 
-        Sets ``stream``; returns when the parent is gone.
+        Sets ``member``; returns when the parent is gone.
         """
-        address = self.config["uds_url"].removeprefix("uds:")
-        reader, writer = await asyncio.open_unix_connection(address)
-        self.stream = FrameStream(reader, writer)
-        await self.present()
-        while True:
-            frame = await self.stream.read()
-            if frame is None:
-                return
-            await self.serve_frame(frame)
+        self.member = await join_bus(self.config["kbus_url"], self.serve)
+        await present(self.member, {
+            "pid": os.getpid(),
+            "config": self.config,
+            ENVELOPE_SLOT_WORKER_SNAPSHOT: self.photo,
+        })
+        await self.member.connected.wait_closed()
 
-    async def present(self) -> None:
-        """Say pid and configuration, and wait for the parent's answer."""
-        await self.stream.write(
-            control_frame(
-                method=REGISTER_METHOD,
-                path=REGISTER_PATH,
-                data={
-                    "pid": os.getpid(),
-                    "config": self.config,
-                    ENVELOPE_SLOT_WORKER_SNAPSHOT: self.photo,
-                },
-            )
-        )
-        await self.stream.read()
+    async def serve(self, message: kbus.Message, reply: kbus.Reply) -> None:
+        """Obey one call from the parent.
 
-    async def serve_frame(self, frame: Frame) -> None:
-        """Obey one envelope from the parent.
-
-        Args:
-            frame: the envelope as it came off the wire.
-
-        A CALL is answered with its REPLY, reusing its id, and whatever this
-        process was told to announce rides that answer, as a real worker's own
-        worker events do. A mute process answers no CALL at all, and the order
-        that mutes it is the last thing it answers.
+        A call is answered with its reply, and whatever this process was told to
+        announce rides that answer, as a real worker's own worker events do. A
+        mute process answers no call at all, and the order that mutes it is the
+        last thing it answers.
 
         Empties ``worker_events``: they are delivered once.
         """
-        if frame.method == CALL_METHOD and self.answering:
-            result = self.route.node(frame.path)(**(read_control(frame) or {}))
-            worker_events, self.worker_events = self.worker_events, []
-            await self.stream.write(
-                control_frame(
-                    id=frame.id,
-                    method=REPLY_METHOD,
-                    path=frame.path,
-                    data={
-                        "result": result,
-                        "worker_events": worker_events,
-                        ENVELOPE_SLOT_WORKER_SNAPSHOT: self.photo,
-                    },
-                )
-            )
+        if not self.answering:
+            await asyncio.Event().wait()
+        data = LanePayload().decode_control(message.payload) or {}
+        result = self.route.node(message.meta["route"])(**data)
+        worker_events, self.worker_events = self.worker_events, []
+        await reply.send(LanePayload().control_message({
+            "result": result,
+            "worker_events": worker_events,
+            ENVELOPE_SLOT_WORKER_SNAPSHOT: self.photo,
+        }))
 
     @route()
     def announce(self, worker_events: list[dict[str, Any]]) -> dict[str, Any]:

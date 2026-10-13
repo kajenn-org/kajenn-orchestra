@@ -36,7 +36,8 @@ from typing import Any
 
 import pytest
 
-from kajenn.kbus.frame import Frame
+from tests.orchestration.message_helpers import join_worker
+
 from kajenn_orchestra.orchestration import FreezeHandler, SpaWorker, WorkerConnector
 from kajenn_orchestra.orchestration import spa_worker as spa_worker_module
 from kajenn_orchestra.orchestration import worker_connector as worker_connector_module
@@ -47,6 +48,8 @@ from kajenn_orchestra.orchestration.worker_connector import (
     ENVELOPE_SLOT_WORKER_SNAPSHOT,
     CommanderCallFailed,
 )
+
+from .group_stub import GroupStub
 
 WORKER_NAME = "standard_0001"
 UPWARD_OP_PATH = "/op/upward"
@@ -61,8 +64,11 @@ class XT_ServingHandler:
             hold is a path the parent does not serve.
     """
 
-    def __init__(self, answers: dict[str, Any] | None = None) -> None:
+    def __init__(self, group_handler: GroupStub, answers: dict[str, Any] | None = None) -> None:
         self.name = WORKER_NAME
+        self.group_handler = group_handler
+        self.connector = WorkerConnector(self)
+        group_handler.worker_handler = self
         self.answers = answers or {}
         self.served: list[tuple[str, Any]] = []
         self.gate: asyncio.Event | None = None
@@ -85,59 +91,47 @@ class XT_ServingHandler:
 class X_LaneWorker(SpaWorker):
     """A worker with one op that asks the parent before answering its own caller."""
 
-    async def answer_call(self, frame: Frame) -> None:
-        if frame.path != UPWARD_OP_PATH:
-            await super().answer_call(frame)
+    async def answer_call(self, message: Any, reply: Any) -> None:
+        if message.meta["route"] != UPWARD_OP_PATH:
+            await super().answer_call(message, reply)
             return
         answer = await self.call(SERVED_OP_PATH, {"who": self.name})
-        await self.send_reply(frame, result=answer)
+        await self.send_reply(message, reply, result=answer)
 
 
 class XT_LanePair:
-    """A connector and a worker on one real UDS, both on this test's loop.
+    """A connector and a worker on one real group bus, both on this test's loop.
 
     Args:
-        handler: the parent side of the wire, which serves the child's calls.
-        socket_path: where to bind, under the short root the UDS cap needs.
+        handler: the parent side of the bus, which serves the child's calls.
         freeze_handler: the deposit the worker is built with.
     """
 
-    def __init__(
-        self, handler: XT_ServingHandler, socket_path: Path, freeze_handler: FreezeHandler
-    ) -> None:
+    def __init__(self, handler: XT_ServingHandler, freeze_handler: FreezeHandler) -> None:
         self.handler = handler
-        self.connector = WorkerConnector(handler, socket_path)
+        self.connector = handler.connector
         self.worker = X_LaneWorker(WORKER_NAME, freeze_handler=freeze_handler)
-        self._reader_task: asyncio.Task[None] | None = None
 
     async def open(self) -> None:
-        """Bind, connect, present, and put the worker's read loop on the air."""
+        """Mint the URL, join the bus, present."""
         await self.connector.start()
-        reader, writer = await asyncio.open_unix_connection(str(self.connector.socket_path))
-        self.worker.attach_stream(spa_worker_module.FrameStream(reader, writer))
+        await join_worker(self.worker, self.connector.url)
         await self.worker.send_presentation({})
-        self._reader_task = asyncio.create_task(self.worker.receive_frames())
         await self.connector.wait_connected()
 
     async def close(self) -> None:
-        if self._reader_task is not None:
-            self._reader_task.cancel()
-            try:
-                await self._reader_task
-            except asyncio.CancelledError:
-                pass
+        self.connector.stop()
         self.worker.exit_process()
-        await self.connector.stop()
+        await self.handler.group_handler.bus.close()
 
 
 @pytest.fixture
 async def pair(short_root, tmp_path):
-    handler = XT_ServingHandler({SERVED_OP_PATH: {"served": "answered"}})
-    built = XT_LanePair(
-        handler,
-        short_root / "i" / f"{WORKER_NAME}.sock",
-        FreezeHandler(tmp_path / "frozen_users"),
+    handler = XT_ServingHandler(
+        GroupStub(short_root / "frozen_users", instance_dir=short_root / "i"),
+        {SERVED_OP_PATH: {"served": "answered"}},
     )
+    built = XT_LanePair(handler, FreezeHandler(tmp_path / "frozen_users"))
     await built.open()
     yield built
     await built.close()
@@ -162,28 +156,6 @@ async def test_a_worker_call_is_served_and_answered_while_the_parents_call_is_st
 
     assert reply["result"] == {"served": "answered"}
     assert ENVELOPE_SLOT_WORKER_EVENTS in reply
-
-
-async def test_two_worker_calls_interleave_by_frame_id(pair):
-    # wf:contract: two CALLs placed by the worker without awaiting the first
-    # wf:contract: resolve each with its own REPLY, matched by frame id, in
-    # wf:contract: whatever order the parent answers.
-    pair.handler.answers = {"/op/one": "first", "/op/two": "second"}
-    gate = asyncio.Event()
-    pair.handler.gate = gate
-
-    one = asyncio.create_task(pair.worker.call("/op/one"))
-    await wait_until(lambda: pair.handler.served)
-    two = asyncio.create_task(pair.worker.call("/op/two"))
-    await wait_until(lambda: len(pair.handler.served) == 2)
-
-    # Both are on the wire and neither is answered: the parent is holding the
-    # gate, so the order the answers come in is the gate's, not the calls'.
-    assert not one.done() and not two.done()
-    gate.set()
-
-    assert await asyncio.wait_for(two, 5.0) == "second"
-    assert await asyncio.wait_for(one, 5.0) == "first"
 
 
 async def test_a_worker_call_from_a_pool_thread_reaches_the_loop_and_returns(pair):
