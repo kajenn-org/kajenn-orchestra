@@ -18,12 +18,14 @@ under an internal root is served natively if structurally present, even when
 its auth rule denies the caller. Other paths go to the hosted application.
 `_orchestration` control is opt-in; `WsxControl` provides `_wsx/openchannel`.
 
-Claim anchors: [`SpaApplication`](../../../src/kajenn_orchestra/spa_app.py#L517), [`SpaApplicationGrammar`](../../../src/kajenn_orchestra/spa_app.py#L152), [`internal_roots`](../../../src/kajenn_orchestra/spa_app.py#L612), [`resolves_natively`](../../../src/kajenn_orchestra/spa_app.py#L622), [`WsxControl`](../../../src/kajenn_orchestra/spa_app.py#L454), [`openchannel`](../../../src/kajenn_orchestra/spa_app.py#L471), [`openchannel`](../../../src/kajenn_orchestra/orchestration/spa_worker.py#L507).
+Claim anchors: [`SpaApplication`](../../../src/kajenn_orchestra/spa_app.py#L522), [`SpaApplicationGrammar`](../../../src/kajenn_orchestra/spa_app.py#L156), [`internal_roots`](../../../src/kajenn_orchestra/spa_app.py#L620), [`resolves_natively`](../../../src/kajenn_orchestra/spa_app.py#L630), [`WsxControl`](../../../src/kajenn_orchestra/spa_app.py#L459), [`openchannel`](../../../src/kajenn_orchestra/spa_app.py#L476), [`openchannel`](../../../src/kajenn_orchestra/orchestration/spa_worker.py#L507).
 
 ## HTTP packing, identity and response translation
 
-`pack_http` buffers the request body, carries headers as pairs and encodes body
-bytes as base64 in the JSON-safe worker payload. `SpaCommander.serve_request`
+`pack_http` buffers the request body and sends a kbus message of `format`
+`http`. Its payload (`LanePayload.encode_http`) is the 4-byte big-endian length
+of the envelope JSON, the envelope JSON, then the `HttpRecord` bytes: the
+request metadata as JSON, headers included, followed by the opaque body bytes. `SpaCommander.serve_request`
 handles placement and forwards the call. The site's returned `connection_id`
 becomes `spa_connection_id` only when it differs from the arriving id. The front
 mints no site connection itself.
@@ -33,7 +35,7 @@ site failure is a generic 502; an explicit worker refusal status and cause are
 preserved, including the 409 for a page whose channel was not opened. A dead
 wire during shutdown becomes 503, while one lost in RUNNING becomes 502.
 
-Claim anchors: [`pack_http`](../../../src/kajenn_orchestra/spa_app.py#L1163), [`SpaCommander`](../../../src/kajenn_orchestra/orchestration/spa_commander.py#L494), [`serve_request`](../../../src/kajenn_orchestra/orchestration/spa_commander.py#L691).
+Claim anchors: [`pack_http`](../../../src/kajenn_orchestra/spa_app.py#L1190), [`SpaCommander`](../../../src/kajenn_orchestra/orchestration/spa_commander.py#L496), [`serve_request`](../../../src/kajenn_orchestra/orchestration/spa_commander.py#L697).
 
 ## WSX page requests
 
@@ -49,7 +51,7 @@ The separately recorded authenticating connection/core session link is not
 written by `build_response`: a site connection change is not automatically a
 core avatar login. Issue #72's opaque transport is not in this baseline.
 
-Claim anchors: [`handshake_cookie`](../../../src/kajenn_orchestra/spa_app.py#L524), [`openchannel`](../../../src/kajenn_orchestra/spa_app.py#L471), [`openchannel`](../../../src/kajenn_orchestra/orchestration/spa_worker.py#L507), [`build_response`](../../../src/kajenn_orchestra/spa_app.py#L1122).
+Claim anchors: [`handshake_cookie`](../../../src/kajenn_orchestra/spa_app.py#L531), [`openchannel`](../../../src/kajenn_orchestra/spa_app.py#L476), [`openchannel`](../../../src/kajenn_orchestra/orchestration/spa_worker.py#L507), [`build_response`](../../../src/kajenn_orchestra/spa_app.py#L1146).
 
 ## Source and test evidence
 
