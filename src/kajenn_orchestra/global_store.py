@@ -24,8 +24,10 @@ owner decision 2026-09-07).
   construction) plus who holds the TURN — request id, worker and the key the
   turn selected. A simple ``get``/``set``/``delete`` takes the same lock for the
   length of its own operation and records no holder; a turn holds it from the
-  grant to the release. No lease and no timer: the holder's channel EOF is the
-  whole death protocol, and it applies nothing.
+  grant to the release. No lease and no timer: the holder leaving the group's bus
+  (``GroupHandler.on_member_lost`` → ``WorkerConnector.lose`` →
+  ``WorkerHandler.on_child_lost``) is the whole death protocol, and it applies
+  nothing.
 - :class:`GlobalStoreClient` is what a worker holds as ``global_store``: the
   three simple operations, synchronous from a pool thread, and ``for_update``.
 - :class:`GlobalStoreLease` is one turn: ``with`` or ``async with``, because the

@@ -129,7 +129,7 @@ class ServerConfiguration(AsgiConfigBuilder):
         )
 ```
 
-`instance_dir` holds one Unix socket per worker and `frozen_users_path` is the
+`instance_dir` holds one Unix socket per group, the group's bus, and `frozen_users_path` is the
 freezer root. Both paths are the installation's and are declared once, on
 `commander`. `worker_class` is a `module:Class` reference the child process
 imports, so the module must be importable from the directory the server runs in.
@@ -216,7 +216,7 @@ the recipe turns the control surface on.
 ```console
 $ ls instance frozen
 instance:
-smoke_0001.sock
+smoke.sock
 
 frozen:
 
@@ -224,7 +224,7 @@ $ cat orders.log
 2026-09-18 14:26:42,902 decided_by=smoke order=start_worker subject=smoke_0001 numbers={'workers': 1} outcome=None
 ```
 
-`instance` holds the worker's socket, `frozen` is empty because nobody left
+`instance` holds the socket of the group's bus, `frozen` is empty because nobody left
 memory, and `orders.log` is one line per order the machine gave — here the
 birth of the reception. A `orders.decisions.jsonl` file appears beside it,
 carrying the same decisions in a structured form.
