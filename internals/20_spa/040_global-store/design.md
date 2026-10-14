@@ -89,8 +89,9 @@ A worker whose wire ends gives its grant back:
 which releases only when that worker is the holder and applies nothing — the
 changes lived on its own working copy, which died with it. Its queued
 acquisitions are cancelled by the connector's `_cancel_child_calls` over
-`_service_tasks`. No lease timer and no expiry: the channel EOF is the whole
-death protocol.
+`_service_tasks`. No lease timer and no expiry: the member's disconnect from the group's bus
+(`GroupHandler.on_member_lost` → `WorkerConnector.lose` → `on_child_lost`) is
+the whole death protocol.
 
 A commit whose answer never came raises `GlobalStoreCommitUnconfirmed(request_id,
 key, cause)`: the commit CALL left, the wire failed before the REPLY, and the

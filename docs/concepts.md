@@ -37,8 +37,8 @@ on demand and shrinks by waste, so the count is a reading.
 
 Two objects wear the name. `WorkerHandler`
 (`orchestration/worker_handler.py`) lives in the server process: it owns one
-Unix socket, one short name such as `smoke_0001`, and the process under it, which
-is replaceable. `SpaWorker` (`orchestration/spa_worker.py`) lives in the child
+short name such as `smoke_0001`, the member of that name on its group's bus,
+and the process under it, which is replaceable. `SpaWorker` (`orchestration/spa_worker.py`) lives in the child
 process: it holds the three registers and serves the requests routed to it. A
 handler survives the death of its process; a placement points at the handler, so
 it survives with it.

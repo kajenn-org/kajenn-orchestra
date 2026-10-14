@@ -50,7 +50,7 @@ Declared once; its two paths are shared by every group.
 | Key | Type | Default | Effect |
 |---|---|---|---|
 | `frozen_users_path` | `str` | — | The freezer root, read by the commander and written by every worker. |
-| `instance_dir` | `str` | — | Where the workers' Unix sockets live. Keep it short: the OS caps `AF_UNIX` path length. |
+| `instance_dir` | `str` | — | Where the Unix sockets of the group buses live, one per group. Keep it short: the OS caps `AF_UNIX` path length. |
 | `memory_max_percent` | `float` | all of it | What this server may hold of the machine — the concession every percentage below is a share of. |
 | `machine_memory_alarm_percent` | `float` | — | The health line of the whole machine. Past it, `state` becomes `saturated` and nothing grows. |
 | `orchestration_log_path` | `str` | `None` | The file every order lands on. Omitted, the rows stay on the logger. A `.decisions.jsonl` file is written beside it. |
@@ -79,7 +79,7 @@ These keys build the group's processes once. A profile may never carry them:
 
 | Key | Type | Default | Effect |
 |---|---|---|---|
-| `name` | `str` | — | The collection key. It names the workers too (`<name>_0001`), and their sockets, so keep it short. |
+| `name` | `str` | — | The collection key. It names the workers too (`<name>_0001`) and the group's socket (`<name>.sock`), so keep it short. |
 | `entry_module` | `str` | — | The module the child runs under `python -m`. Normally `kajenn_orchestra.orchestration.worker_entry`. |
 | `executable` | `str` | this interpreter | The interpreter to spawn with. Two groups are how two versions of a site live side by side. |
 | `worker_class` | `str` | the base worker | The `module:Class` the child loads. A real deployment names a `SpaWorker` subclass; the base one hosts no site. |

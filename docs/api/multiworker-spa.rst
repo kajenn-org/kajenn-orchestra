@@ -33,6 +33,7 @@ not an API guarantee.
    modules/orchestration_freeze_handler
    modules/orchestration_envelope_handler
    modules/orchestration_worker_connector
+   modules/orchestration_lane_payload
    modules/orchestration_worker_entry
    modules/orchestration_worker_process
    modules/orchestration_template_connector

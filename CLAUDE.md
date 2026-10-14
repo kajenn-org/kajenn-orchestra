@@ -7,8 +7,7 @@
 
 ### Current Status
 - Development Status: Beta — Has Implementation: Yes
-- Version 0.1.0, migrated from genro-asgi 0.46.3 by the phases in
-  `../kajenn-meta/MIGRATION_PLAN.md`.
+- Version 0.5.0. Orchestra runs on the kbus library (`kajenn-kbus`): one bus per group.
 
 ### Content
 SPA application and worker orchestration: `src/kajenn_orchestra/`, tests in `tests/`.
@@ -20,7 +19,7 @@ public surface of kajenn and is the owner's decision, never a side effect of a c
 `tools/import_graph.py` checks it in pre-commit against the sibling checkout `../kajenn`.
 
 Development installs kajenn editable from `../kajenn` (`[tool.uv.sources]`). CI installs it
-from git until kajenn 0.1.0 is on PyPI.
+from PyPI (`pip install ".[dev]"`, `kajenn>=0.4.5`).
 
 ### Git hooks
 ```bash
