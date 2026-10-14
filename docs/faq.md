@@ -29,7 +29,7 @@ See the [configuration reference](configuration.md).
 
 ### The group starts `broken` with `AF_UNIX path too long`.
 
-`instance_dir` holds one socket per worker and the operating system caps the
+`instance_dir` holds one socket per group and the operating system caps the
 length of a Unix socket path. Point it at a short absolute directory.
 
 See [Getting started](getting-started.md#the-recipe).

@@ -19,7 +19,7 @@ token stops admitting, so a predecessor process cannot rejoin. The worker gets
 `unix://<name>:<token>@<socket path>` as `spawn_payload["kbus_url"]`, inside
 `KAJENN_WORKER`; the forked path carries the same payload.
 
-Claim anchors: [`GroupHandler.open_bus`](../../../src/kajenn_orchestra/orchestration/group_handler.py#L1517), [`GroupHandler.bus`](../../../src/kajenn_orchestra/orchestration/group_handler.py#L503), [`WorkerConnector.start`](../../../src/kajenn_orchestra/orchestration/worker_connector.py#L114), [`WorkerHandler.spawn_payload`](../../../src/kajenn_orchestra/orchestration/worker_handler.py#L340), [`GROUP_MEMBER`](../../../src/kajenn_orchestra/orchestration/worker_connector.py#L43).
+Claim anchors: [`GroupHandler.open_bus`](../../../src/kajenn_orchestra/orchestration/group_handler.py#L1515), [`GroupHandler.bus`](../../../src/kajenn_orchestra/orchestration/group_handler.py#L502), [`WorkerConnector.start`](../../../src/kajenn_orchestra/orchestration/worker_connector.py#L116), [`WorkerHandler.spawn_payload`](../../../src/kajenn_orchestra/orchestration/worker_handler.py#L340), [`GROUP_MEMBER`](../../../src/kajenn_orchestra/orchestration/worker_connector.py#L43).
 
 ## Routes and presentation
 
@@ -30,7 +30,7 @@ After `Member.connect` the worker's first call is `group./register`
 `WorkerHandler.read_envelope` composed, the global store included. A call
 before the presentation is refused with `kbus.Refused`.
 
-Claim anchors: [`WorkerEntry.connect`](../../../src/kajenn_orchestra/orchestration/worker_entry.py#L188), [`SpaWorker.attach_member`](../../../src/kajenn_orchestra/orchestration/spa_worker.py#L1172), [`WorkerConnector.serve`](../../../src/kajenn_orchestra/orchestration/worker_connector.py#L193), [`REGISTER_PATH`](../../../src/kajenn_orchestra/orchestration/worker_connector.py#L46).
+Claim anchors: [`WorkerEntry.connect`](../../../src/kajenn_orchestra/orchestration/worker_entry.py#L188), [`SpaWorker.attach_member`](../../../src/kajenn_orchestra/orchestration/spa_worker.py#L1174), [`WorkerConnector.serve`](../../../src/kajenn_orchestra/orchestration/worker_connector.py#L215), [`REGISTER_PATH`](../../../src/kajenn_orchestra/orchestration/worker_connector.py#L46).
 
 ## Meta and payload
 
@@ -66,14 +66,14 @@ other side: no cancel is sent, and on the group side the reply that lands late
 is still folded, so the events it carries reach the chain. A reply over the
 frame ceiling raises `kbus.FrameTooLarge` and is replaced by an error reply.
 
-Claim anchors: [`GroupHandler.on_member_lost`](../../../src/kajenn_orchestra/orchestration/group_handler.py#L1537), [`WorkerConnector.lose`](../../../src/kajenn_orchestra/orchestration/worker_connector.py#L212), [`LINK_GONE`](../../../src/kajenn_orchestra/orchestration/worker_connector.py#L60), [`WorkerConnector.call_message`](../../../src/kajenn_orchestra/orchestration/worker_connector.py#L170), [`SpaApplication.wire_lost_response`](../../../src/kajenn_orchestra/spa_app.py#L1101).
+Claim anchors: [`GroupHandler.on_member_lost`](../../../src/kajenn_orchestra/orchestration/group_handler.py#L1542), [`WorkerConnector.lose`](../../../src/kajenn_orchestra/orchestration/worker_connector.py#L234), [`LINK_GONE`](../../../src/kajenn_orchestra/orchestration/worker_connector.py#L60), [`WorkerConnector.call_message`](../../../src/kajenn_orchestra/orchestration/worker_connector.py#L172), [`SpaApplication.wire_lost_response`](../../../src/kajenn_orchestra/spa_app.py#L1101).
 
 ## Browser codec
 
 Browser `WsxEnvelope` is a different codec: its data uses TYTX within the WSX
 text envelope. It is not the internal bus format.
 
-Claim anchors: [`WsxEnvelope`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/wsx.py#L102).
+Claim anchors: [`WsxEnvelope`](https://github.com/kajenn-org/kajenn/blob/main/src/kajenn/wsx.py#L103).
 
 ## Source and test evidence
 

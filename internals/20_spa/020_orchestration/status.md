@@ -19,7 +19,7 @@ path. `WorkerEntry` passes an inherited `group_engine` to the worker. Assigning
 both ASGI and WSGI applications is rejected at worker boot; neither is valid for
 a base worker serving only orders.
 
-Claim anchors: [`SpaCommander`](../../../src/kajenn_orchestra/orchestration/spa_commander.py#L494), [`GroupHandler`](../../../src/kajenn_orchestra/orchestration/group_handler.py#L320), [`WorkerHandler`](../../../src/kajenn_orchestra/orchestration/worker_handler.py#L209), [`SpaWorker`](../../../src/kajenn_orchestra/orchestration/spa_worker.py#L564), [`WorkerEntry`](../../../src/kajenn_orchestra/orchestration/worker_entry.py#L90).
+Claim anchors: [`SpaCommander`](../../../src/kajenn_orchestra/orchestration/spa_commander.py#L496), [`GroupHandler`](../../../src/kajenn_orchestra/orchestration/group_handler.py#L324), [`WorkerHandler`](../../../src/kajenn_orchestra/orchestration/worker_handler.py#L209), [`SpaWorker`](../../../src/kajenn_orchestra/orchestration/spa_worker.py#L564), [`WorkerEntry`](../../../src/kajenn_orchestra/orchestration/worker_entry.py#L91).
 
 ## Requests, worker events and mobility
 
@@ -37,7 +37,7 @@ performing a direct worker-to-worker transfer. A failed parent fold still needs
 its own resynchronization/escalation policy; the design's F48/F49 concern is not
 resolved by documenting successful requests.
 
-Claim anchors: [`resolve_worker`](../../../src/kajenn_orchestra/orchestration/spa_commander.py#L753), [`worker_events`](../../../src/kajenn_orchestra/orchestration/spa_worker.py#L782), [`freeze_hosted_user`](../../../src/kajenn_orchestra/orchestration/group_handler.py#L990), [`FreezeHandler`](../../../src/kajenn_orchestra/orchestration/freeze_handler.py#L88).
+Claim anchors: [`resolve_worker`](../../../src/kajenn_orchestra/orchestration/spa_commander.py#L757), [`worker_events`](../../../src/kajenn_orchestra/orchestration/spa_worker.py#L781), [`freeze_hosted_user`](../../../src/kajenn_orchestra/orchestration/group_handler.py#L1009), [`FreezeHandler`](../../../src/kajenn_orchestra/orchestration/freeze_handler.py#L88).
 
 ## CPU policy, memory limits and live profiles
 
@@ -52,7 +52,7 @@ orchestration log. `apply_group_settings` validates a composed profile before
 committing it under a lock; it changes setpoints of one existing group, not the
 general application/deployment topology.
 
-Claim anchors: [`GroupPolicy`](../../../src/kajenn_orchestra/orchestration/group_policy.py#L70), [`apply_group_settings`](../../../src/kajenn_orchestra/orchestration/spa_commander.py#L1448).
+Claim anchors: [`GroupPolicy`](../../../src/kajenn_orchestra/orchestration/group_policy.py#L70), [`apply_group_settings`](../../../src/kajenn_orchestra/orchestration/spa_commander.py#L1474).
 
 ## Shutdown and shared state
 
@@ -63,7 +63,7 @@ change batches remain. Hosted request/response bodies are still fully buffered
 in the current ASGI seam. Distribution, subcommanders and issue #72 are not
 implemented by these mechanisms.
 
-Claim anchors: [`quit`](../../../src/kajenn_orchestra/orchestration/spa_worker.py#L445), [`quit`](../../../src/kajenn_orchestra/orchestration/spa_commander.py#L1710), [`quit`](../../../src/kajenn_orchestra/orchestration/spa_worker.py#L2088).
+Claim anchors: [`quit`](../../../src/kajenn_orchestra/orchestration/spa_worker.py#L445), [`quit`](../../../src/kajenn_orchestra/orchestration/spa_commander.py#L1736), [`quit`](../../../src/kajenn_orchestra/orchestration/spa_worker.py#L2111).
 
 ## Source and test evidence
 

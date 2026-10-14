@@ -18,7 +18,7 @@ optional page/reply-path metadata. The WSGI adapter derives SCRIPT_NAME from
 root_path and PATH_INFO from the remaining path. This is not streaming across
 the worker channel; #72 remains a proposal at this revision.
 
-Claim anchors: [`SpaWorker`](../../../src/kajenn_orchestra/orchestration/spa_worker.py#L564), [`hosted_app_seam`](../../../src/kajenn_orchestra/orchestration/spa_worker.py#L689), [`AsgiSeam`](../../../src/kajenn_orchestra/environ.py#L71), [`WsgiSeam`](../../../src/kajenn_orchestra/environ.py#L174).
+Claim anchors: [`SpaWorker`](../../../src/kajenn_orchestra/orchestration/spa_worker.py#L564), [`hosted_app_seam`](../../../src/kajenn_orchestra/orchestration/spa_worker.py#L688), [`AsgiSeam`](../../../src/kajenn_orchestra/environ.py#L46), [`WsgiSeam`](../../../src/kajenn_orchestra/environ.py#L125).
 
 ## Extension seams and genropy ownership
 
@@ -34,7 +34,7 @@ from these core/SPA implementations after #59. The shared store is a commander
 and complete-value leases. The local code verifies the offered seam, not whether
 an external bridge deployment has migrated successfully.
 
-Claim anchors: [`on_request_served`](../../../src/kajenn_orchestra/orchestration/spa_worker.py#L746), [`on_worker_presented`](../../../src/kajenn_orchestra/orchestration/spa_commander.py#L963), [`RegisterRegistry`](../../../src/kajenn_orchestra/register_registry.py#L125).
+Claim anchors: [`on_request_served`](../../../src/kajenn_orchestra/orchestration/spa_worker.py#L745), [`on_worker_presented`](../../../src/kajenn_orchestra/orchestration/spa_commander.py#L980), [`RegisterRegistry`](../../../src/kajenn_orchestra/register_registry.py#L125).
 
 ## Unresolved contract history
 

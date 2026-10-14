@@ -170,14 +170,6 @@ The complete, currently executable recipes use this format:
   define or import;
 - it must build: `AsgiServer(config=<that class>)` constructs without raising.
 
-`tests/test_documentation_recipes.py` collects every complete recipe under that
-heading and constructs its server in a separate process. Each process has a
-private configuration home, temporary directory and a 20-second timeout. Run
-`python -m pytest tests/test_documentation_recipes.py -o addopts=''` from the
-repository root after installing `.[test]`. This proves construction, not
-lifespan startup or HTTP responses. Five complete recipes exist at the
-2026-09-08 baseline; entries without one still owe their recipe.
-
 Design fragments requiring future APIs must be labelled as proposals. They do
 not become executable examples merely because the intended design uses present
 tense. Keep those fragments outside the complete-recipe section until their
@@ -356,7 +348,7 @@ flowchart TB
 |---|---|
 | [010 spa-application](../20_spa/010_spa-application/README.md) | one stable door to the hosted site, no state in the door |
 | [020 orchestration](../20_spa/020_orchestration/README.md) | many users with live state, scaled across processes, never split |
-| [030 KajennBus](../20_spa/030_channel/README.md) | the wire: frames, hub, the lane |
+| [030 Group bus](../20_spa/030_channel/README.md) | `kbus.Dispatcher` per group, members, routes |
 | [040 global-store](../20_spa/040_global-store/README.md) | one shared state, safe read-modify-write |
 | [070 console](../20_spa/070_console/README.md) | ask a live pool the questions nobody predicted |
 | [080 bridge-contract](../20_spa/080_bridge-contract/README.md) | what genropy-asgi implements and consumes — generalized core, site logic in the bridge |

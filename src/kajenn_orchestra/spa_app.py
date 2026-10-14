@@ -250,7 +250,7 @@ class SpaApplicationGrammar(ApplicationGrammar):
         """One group of workers: its own policies, and the identity of its child.
 
         ``name`` is the collection key and names the group's workers too
-        (``<name>_0001``), so it is short — a worker's name is its socket's.
+        (``<name>_0001``) and the group's bus socket (``<name>.sock``), so it is short.
 
         **Nothing here says how many workers there are.** The group brings its
         reception into being at boot and then grows on demand and shrinks by
