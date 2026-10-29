@@ -101,6 +101,13 @@ async def test_custom_payload_is_opaque_in_spawned_front_and_decoded_only_at_end
         cookie = client.cookies.get("spa_connection_id")
         assert cookie
 
+        # The site raised in a live worker: the browser reads the 500 of an
+        # application error, not the 502 of an unreachable server, and the
+        # reason stays in the worker's log (#27).
+        failed = await client.get("/main/error")
+        assert failed.status_code == 500
+        assert failed.text == "Internal Server Error"
+
         async with websockets.connect(
             f"ws://127.0.0.1:{port}/main/",
             additional_headers={"Cookie": f"spa_connection_id={cookie}"},
@@ -145,7 +152,8 @@ async def test_custom_payload_is_opaque_in_spawned_front_and_decoded_only_at_end
             await websocket.send(
                 envelope(id="error", method="WSK", path="/main/error", page_id=PAGE, data=encoded)
             )
-            assert (await receive_for_id(websocket, "error"))["status"] == 502
+            # The same failure over the page socket reads the same 500 (#27).
+            assert (await receive_for_id(websocket, "error"))["status"] == 500
 
             await websocket.send(
                 envelope(method="WSK", path="/main/rpc", page_id=PAGE, data=encoded)
@@ -155,7 +163,10 @@ async def test_custom_payload_is_opaque_in_spawned_front_and_decoded_only_at_end
 
         final_probe = (await client.get("/_probe")).json()
         assert final_probe["opaque_registered"] is False
-        assert final_probe["routing_codec_calls"]["wsx_to_tytx"] == 0
+        # The one conversion is the 500 of the failed page rpc: its body is the
+        # worker's plain "Internal Server Error", not a routed payload, and the
+        # envelope carries it as TYTX (#27). Every routed payload stayed opaque.
+        assert final_probe["routing_codec_calls"]["wsx_to_tytx"] == 1
         assert final_probe["routing_codec_calls"]["payload_decode"] == 0
         # A front-owned error response may require endpoint conversion; routed
         # successful payloads above left this counter at zero.
