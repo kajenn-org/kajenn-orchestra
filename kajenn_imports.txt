@@ -10,6 +10,7 @@ kajenn.response
 kajenn.routed_application
 kajenn.server
 kajenn.session.session
+kajenn.spa_application
 kajenn.sse
 kajenn.streaming
 kajenn.transport_limits

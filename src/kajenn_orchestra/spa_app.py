@@ -103,7 +103,7 @@ from kajenn_orchestra.orchestration_profile_store import (
 )
 from kajenn.response import Response
 from kajenn.wsx_payload import SerializedWsxPayload
-from kajenn.routed_application import RoutedApplication
+from kajenn.spa_application import SpaApplicationBase
 from kajenn.server import QUITTING, REFUSED_RETRY_AFTER_SECONDS, RUNNING
 from .inspector_section import INSPECTOR_ENV_VAR, InspectorSection
 from .orchestration import AssignmentRefused, SiteFailedRequest, SpaCommander
@@ -519,7 +519,7 @@ class WsxControl(RoutingClass):
         return {"channel": reply.get("result")}
 
 
-class SpaApplication(RoutedApplication):
+class SpaApplication(SpaApplicationBase):
     """A single-page-application front backed by the new user-sticky pool."""
 
     #: The words this front adds to a recipe, read back under its own code.
