@@ -277,11 +277,13 @@ class TestACallerWithNoCookie:
         self, worker_commander_lane
     ) -> None:
         # No websocket can reach this any more — the handshake gate closes such
-        # a socket first (#70 A) — but the route is a route: an HTTP caller can
-        # knock on it with no cookie at all, and the answer must never be «some
+        # a socket first (#70 A) — and the route answers on the channel wsx
+        # only, so no HTTP caller reaches it either. The handler still refuses a
+        # request with no cookie at all: the answer must never be «some
         # connection».
         front = XT_Front(worker_commander_lane.commander, code="site0", mount="")
-        control = front.route.node("/_wsx/openchannel")
+        assert front.route.node("/_wsx/openchannel").error == "not_available"
+        control = front.route.node("/_wsx/openchannel", channel_channel="wsx")
         request = Request(
             {
                 "type": "http",

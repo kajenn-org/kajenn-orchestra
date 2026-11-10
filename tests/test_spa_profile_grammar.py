@@ -42,9 +42,11 @@ from kajenn_orchestra.spa_app import (
 )
 from kajenn.config.builder import AsgiConfigBuilder
 from kajenn.config.handler import ConfigError, ConfigurationHandler
+from kajenn.routed_application import META_SEGMENT
 from kajenn.lifespan import FatalBootError
 from kajenn_orchestra.orchestration import SpaCommander
 
+from .conftest import assert_only_the_server_application_answers, start_server_without
 from .test_spa_app_profiles import lifespan_startup
 
 SPA_APP_LOGGER = "kajenn_orchestra.spa_app"
@@ -115,8 +117,22 @@ def application_recipe_with(root: Path, **front_words: Any) -> type[AsgiConfigBu
 
 
 async def boot(server: AsgiServer) -> None:
-    """Bring the front up the way the lifespan does."""
-    await server.applications["site0"].on_startup()
+    """Build the front's pool the way ``on_startup`` does, a refusal raising ``FatalBootError``."""
+    await server.applications["site0"].build_pool()
+
+
+async def start_refused(server: AsgiServer, caplog: Any, reason: str) -> None:
+    """Start ``server`` through its lifespan and check the front gave up for ``reason``.
+
+    The startup completes, the front is removed, only ``_server`` answers, and
+    the reason is said on this module's logger.
+    """
+    with caplog.at_level(logging.ERROR, logger=SPA_APP_LOGGER):
+        sent = await start_server_without(server, "site0")
+    assert [message["type"] for message in sent] == ["lifespan.startup.complete"]
+    assert "site0" not in server.applications
+    await assert_only_the_server_application_answers(server)
+    assert reason in caplog.text
 
 
 def test_the_orchestration_node_carries_the_three_words(tmp_path: Path) -> None:
@@ -238,11 +254,14 @@ def test_env_settings_is_not_grammar(tmp_path: Path) -> None:
     assert "env_settings" in str(refusal.value)
 
 
-async def test_a_front_with_no_orchestration_does_not_boot(tmp_path: Path) -> None:
+async def test_a_front_with_no_orchestration_leaves_only_the_server_application(
+    tmp_path: Path, caplog: Any
+) -> None:
     # wf:contract: a spa front declared without the orchestration node is an
-    # wf:contract: INCOMPLETE configuration: fatal boot, startup.failed, no
-    # wf:contract: commander and no control root. Wanting no pool means
-    # wf:contract: declaring no spa front.
+    # wf:contract: INCOMPLETE configuration: build_pool refuses with no
+    # wf:contract: commander and no control root; through the lifespan the
+    # wf:contract: front gives up and only _server answers. Wanting no pool
+    # wf:contract: means declaring no spa front.
     class NoPoolConfig(AsgiConfigBuilder):
         def main(self, configuration_root: Any) -> None:
             cfg = configuration_root.configuration()
@@ -256,8 +275,7 @@ async def test_a_front_with_no_orchestration_does_not_boot(tmp_path: Path) -> No
     assert front._commander is None
     assert ORCHESTRATION_ROOT not in front.internal_roots
 
-    sent = await lifespan_startup(AsgiServer(config=NoPoolConfig))
-    assert [message["type"] for message in sent][0] == "lifespan.startup.failed"
+    await start_refused(AsgiServer(config=NoPoolConfig), caplog, "no 'orchestration' node")
 
 
 async def test_a_server_with_no_spa_front_at_all_starts(tmp_path: Path) -> None:
@@ -275,10 +293,13 @@ async def test_a_server_with_no_spa_front_at_all_starts(tmp_path: Path) -> None:
     assert [message["type"] for message in sent][0] == "lifespan.startup.complete"
 
 
-async def test_an_orchestration_with_no_commander_does_not_boot(tmp_path: Path) -> None:
+async def test_an_orchestration_with_no_commander_leaves_only_the_server_application(
+    tmp_path: Path, caplog: Any
+) -> None:
     # wf:contract: a declared orchestration node MUST carry a commander: profile
     # wf:contract: and control plane with no pool to act on address nothing, so
-    # wf:contract: the boot is fatal and the lifespan answers startup.failed.
+    # wf:contract: build_pool refuses and, through the lifespan, the front gives
+    # wf:contract: up and only _server answers.
     server = AsgiServer(
         config=recipe_with(tmp_path, {"control_enabled": True}, with_commander=False)
     )
@@ -293,8 +314,7 @@ async def test_an_orchestration_with_no_commander_does_not_boot(tmp_path: Path) 
     fresh = AsgiServer(
         config=recipe_with(tmp_path, {"control_enabled": True}, with_commander=False)
     )
-    sent = await lifespan_startup(fresh)
-    assert [message["type"] for message in sent][0] == "lifespan.startup.failed"
+    await start_refused(fresh, caplog, "no commander")
 
 
 def counting_front(
@@ -362,12 +382,15 @@ def live_heartbeats(built: list[Any]) -> int:
     )
 
 
-async def test_a_root_the_front_already_claims_does_not_boot(tmp_path: Path) -> None:
+async def test_a_root_the_front_already_claims_leaves_only_the_server_application(
+    tmp_path: Path, caplog: Any
+) -> None:
     # wf:contract: a front whose own router already answers on _orchestration
     # wf:contract: cannot also mount the runtime configuration there. The clash
     # wf:contract: is established BEFORE anything is built, so the boot fails
     # wf:contract: with no vertex constructed, no clock running and the router
-    # wf:contract: exactly as the front left it.
+    # wf:contract: exactly as the front left it; through the lifespan the front
+    # wf:contract: gives up and only _server answers.
     built: list[Any] = []
 
     class ClashingFront(counting_front(built)):  # type: ignore[misc]
@@ -392,8 +415,7 @@ async def test_a_root_the_front_already_claims_does_not_boot(tmp_path: Path) -> 
     assert live_heartbeats(built) == 0
     assert set(front.internal_roots) == before
 
-    sent = await lifespan_startup(AsgiServer(config=recipe))
-    assert [message["type"] for message in sent][0] == "lifespan.startup.failed"
+    await start_refused(AsgiServer(config=recipe), caplog, "already claimed")
 
 
 async def test_a_mount_that_breaks_takes_the_pool_back_down(tmp_path: Path) -> None:
@@ -438,11 +460,12 @@ async def test_a_second_startup_builds_no_second_pool(tmp_path: Path) -> None:
     assert (built[0].starts, built[0].stops, built[0].quits) == (1, 0, 0)
     assert front.commander is built[0]
     assert live_heartbeats(built) == 1
-    # The front's internal roots, each claimed ONCE: the orchestration control
-    # and the channel commands of a page (#68 phase 4).
+    # The front's internal roots, each claimed ONCE: the orchestration control,
+    # the channel commands of a page (#68 phase 4) and the core's ``_meta``.
     assert set(front.route.nodes(lazy=True, forbidden=True)["routers"]) == {
         ORCHESTRATION_ROOT,
         WSX_ROOT,
+        META_SEGMENT,
     }
 
 
@@ -479,11 +502,12 @@ async def test_a_startup_after_a_shutdown_builds_a_new_pool_and_no_second_route(
     assert first.stops == 1
 
     assert ORCHESTRATION_ROOT in front.internal_roots
-    # The front's internal roots, each claimed ONCE: the orchestration control
-    # and the channel commands of a page (#68 phase 4).
+    # The front's internal roots, each claimed ONCE: the orchestration control,
+    # the channel commands of a page (#68 phase 4) and the core's ``_meta``.
     assert set(front.route.nodes(lazy=True, forbidden=True)["routers"]) == {
         ORCHESTRATION_ROOT,
         WSX_ROOT,
+        META_SEGMENT,
     }
     for name in ("apply", "reload", "status"):
         assert front.resolves_natively(f"/{ORCHESTRATION_ROOT}/{name}") is True
@@ -516,7 +540,9 @@ async def test_a_boot_that_fails_leaves_the_router_untouched(tmp_path: Path) -> 
     assert ORCHESTRATION_ROOT not in front.internal_roots
 
 
-async def test_a_start_that_raises_leaves_the_front_holding_nothing(tmp_path: Path) -> None:
+async def test_a_start_that_raises_leaves_the_front_holding_nothing(
+    tmp_path: Path, caplog: Any
+) -> None:
     # wf:contract: a pool that arms something and then fails to come up is taken
     # wf:contract: back down: one vertex, one start, one stop, no clock left, the
     # wf:contract: front holding none, the router untouched and the boot fatal.
@@ -541,18 +567,20 @@ async def test_a_start_that_raises_leaves_the_front_holding_nothing(tmp_path: Pa
     assert set(front.internal_roots) == before
     assert ORCHESTRATION_ROOT not in front.internal_roots
 
-    # The same failure through the real lifespan: the server does not start.
+    # The same failure through the real lifespan: the front gives up, only the
+    # server application answers, and no clock is left running.
     fresh: list[Any] = []
-    sent = await lifespan_startup(
+    await start_refused(
         AsgiServer(
             config=recipe_with(
                 tmp_path,
                 {"control_enabled": True},
                 app_class=counting_front(fresh, failing_starts=1),
             )
-        )
+        ),
+        caplog,
+        "could not be brought up",
     )
-    assert [message["type"] for message in sent][0] == "lifespan.startup.failed"
     assert live_heartbeats(fresh) == 0
 
 

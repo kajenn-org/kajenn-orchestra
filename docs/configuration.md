@@ -21,7 +21,9 @@ commander.groups(default="standard").group(name="standard")
 ```
 
 `orchestration` is required. A front declared without it, or with it and no
-`commander` under it, raises `FatalBootError` and the server does not start.
+`commander` under it, gives up at startup. `SpaApplication` is `mandatory` by
+default, so only `_server` answers and `/readyz` is not ready; the process stays
+up. A recipe may write `mandatory=False` on the application node.
 Wanting no pool means declaring no SPA front.
 
 Every numeric key accepts a `BagResolver` in place of a literal, which is how a
@@ -32,7 +34,7 @@ recipe defers a value.
 | Key | Type | Default | Effect |
 |---|---|---|---|
 | `profiles_path` | `str` | `None` | The folder stored profiles are read from — the same one the `_sysop` archive writes. |
-| `profile_name` | `str` | `None` | The profile the boot must find and put in force. Named without a folder, missing, or invalid: the server does not start. |
+| `profile_name` | `str` | `None` | The profile the boot must find and put in force. Named without a folder, missing, or invalid: the front gives up: only `_server` answers and `/readyz` is not ready. |
 | `control_enabled` | `bool` | `False` | Mounts the runtime configuration under the front's `_orchestration` root. Off, that path belongs to the hosted site. |
 
 `env_settings` is not a grammar word. It is a `dict` passed as a constructor
