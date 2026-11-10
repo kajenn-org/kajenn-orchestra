@@ -27,6 +27,12 @@ the fixtures above do not pack. The two mechanisms coexist on purpose — the
 fixtures have a dozen consumers among the contract tests, and unifying them is
 its own task, never smuggled into another change.
 
+Every application but ``_server`` is registered disabled and answers 503 until
+its ``on_startup`` returned, which the lifespan does not await: ``wait_enabled``
+waits for named applications, ``start_server`` runs the lifespan and waits for
+all of them, ``start_server_without`` waits until a front that gave up is gone.
+The autouse ``stop_started_servers`` shuts down the lifespans those two opened.
+
 ``kajenn_home`` is autouse: no test ever reads the developer's real
 ``~/.kajenn``, whose ``config.py`` would otherwise layer itself under every
 ``AsgiServer(config=...)`` built here.
@@ -240,6 +246,70 @@ class LifespanRunner:
     async def _answered(self, prefix: str) -> None:
         while not any(message["type"].startswith(prefix) for message in self.sent):
             await asyncio.sleep(0)
+
+
+#: The lifespans ``start_server`` opened in the running test, by server identity.
+STARTED: dict[int, LifespanRunner] = {}
+
+
+async def wait_enabled(server: Any, *codes: str, timeout: float = 10.0) -> None:
+    """Wait until every application in ``codes`` answers, or fail at the deadline.
+
+    An application other than ``_server`` is registered disabled and answers 503
+    until its ``on_startup`` returns: the lifespan does not await it.
+    """
+    async with asyncio.timeout(timeout):
+        while not all(server.is_enabled(code) for code in codes):
+            await asyncio.sleep(0.005)
+
+
+async def start_server(server: Any) -> Any:
+    """Run ``server``'s lifespan startup once and wait until every application answers.
+
+    The lifespan stays open until the end of the test, when
+    ``stop_started_servers`` shuts it down. A server started already in this
+    test is returned as it is. Returns ``server``.
+    """
+    if id(server) in STARTED:
+        return server
+    runner = STARTED[id(server)] = LifespanRunner(server)
+    await runner.startup()
+    await wait_enabled(server, *server.applications)
+    return server
+
+
+async def start_server_without(server: Any, code: str) -> list[dict[str, Any]]:
+    """Run ``server``'s lifespan startup and wait until the application ``code`` is gone.
+
+    For an application whose ``on_startup`` gives up: the server removes it, and
+    the lifespan stays open until ``stop_started_servers`` shuts it down.
+
+    Returns:
+        What the lifespan sent back so far.
+    """
+    runner = STARTED[id(server)] = LifespanRunner(server)
+    await runner.startup()
+    async with asyncio.timeout(10):
+        while code in server.applications:
+            await asyncio.sleep(0.005)
+    return runner.sent
+
+
+async def assert_only_the_server_application_answers(server: Any) -> None:
+    """The public part is closed: ``_server`` answers, ``/readyz`` says not ready."""
+    assert server.public_closed is True
+    assert (await ask_app(server, "/livez"))["status"] == 200
+    assert (await ask_app(server, "/readyz"))["status"] == 503
+
+
+@pytest.fixture(autouse=True)
+async def stop_started_servers() -> Any:
+    """Autouse: shut down every lifespan ``start_server`` opened during the test."""
+    yield
+    runners = list(STARTED.values())
+    STARTED.clear()
+    for runner in runners:
+        await runner.shutdown()
 
 
 async def ask_app(

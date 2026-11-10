@@ -40,7 +40,11 @@ wsx_payload_module.WsxResponseEncoder.encode = counted_response_encode
 
 
 class ProbeApplication(BaseApplication):
-    """Frontend-only probe; importing this module never imports the worker module."""
+    """Frontend-only probe; importing this module never imports the worker module.
+
+    It answers 503 until the ``main`` front is enabled: the front answers 503
+    itself until its ``on_startup`` returned, so a 200 here means ``main`` serves.
+    """
 
     async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
         body = json.dumps(
@@ -53,7 +57,7 @@ class ProbeApplication(BaseApplication):
         await send(
             {
                 "type": "http.response.start",
-                "status": 200,
+                "status": 200 if self.server.is_enabled("main") else 503,
                 "headers": [(b"content-type", b"application/json")],
             }
         )

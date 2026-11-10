@@ -34,7 +34,7 @@ from typing import Any
 
 from genro_routes import RoutingClass, route
 
-from kajenn.applications.mcp import McpApplication
+from kajenn.routed_application import RoutedApplication
 from .spa_app import SpaApplication
 
 __all__ = ["SpaConsole", "SpaConsoleMcpApplication"]
@@ -50,17 +50,16 @@ class SpaConsole(RoutingClass):
     """
 
     def __init__(self, application: Any) -> None:
-        self.route.plug("pydantic")
         self.application = application
 
-    @route()
+    @route(channel_channels="mcp")
     async def targets(self) -> dict:
         """Every process the door can look into, by SPA application code."""
         return {
             code: front.commander.console_targets for code, front in self.spa_fronts.items()
         }
 
-    @route()
+    @route(channel_channels="mcp")
     async def eval(self, expr: str, target: str = "commander", app: str = "") -> dict:
         """Evaluate a Python expression in one process of the pool.
 
@@ -104,7 +103,7 @@ class SpaConsole(RoutingClass):
         )
 
 
-class SpaConsoleMcpApplication(McpApplication):
+class SpaConsoleMcpApplication(RoutedApplication):
     """The MCP app whose whole tool surface is the pool's debug door.
 
     Recipe-friendly: mount it and the door exists, leave it out and it does
@@ -114,4 +113,5 @@ class SpaConsoleMcpApplication(McpApplication):
     mcp_name = "kajenn-spa-console"
 
     def __init__(self, **kwargs: Any) -> None:
-        super().__init__(routing_class=SpaConsole(self), **kwargs)
+        super().__init__(**kwargs)
+        self.route.add_branches({"name": "console", "instance": SpaConsole(self)})

@@ -39,7 +39,7 @@ from kajenn_orchestra.inspector_section import INSPECTOR_ENV_VAR
 from kajenn_orchestra.orchestration import SpaCommander
 from kajenn_orchestra.spa_app import SPA_CONNECTION_ID_COOKIE, SpaApplication
 
-from .conftest import LifespanRunner
+from .conftest import LifespanRunner, wait_enabled
 
 
 class InspectorScriptedCommander(SpaCommander):
@@ -91,6 +91,7 @@ async def inspector_server(tmp_path, monkeypatch):
     server = AsgiServer(config=inspector_recipe_for(tmp_path))
     runner = LifespanRunner(server)
     await runner.startup()
+    await wait_enabled(server, *server.applications)
     yield server
     await runner.shutdown()
 
@@ -102,6 +103,7 @@ async def plain_server(tmp_path, monkeypatch):
     server = AsgiServer(config=inspector_recipe_for(tmp_path))
     runner = LifespanRunner(server)
     await runner.startup()
+    await wait_enabled(server, *server.applications)
     yield server
     await runner.shutdown()
 
@@ -189,12 +191,14 @@ async def test_no_server_app_leaves_the_inspector_unmounted(inspector_server, ca
     assert "nowhere to go" in caplog.text
 
 
-async def test_a_second_front_on_one_server_does_not_boot(tmp_path, monkeypatch):
+async def test_a_second_front_on_one_server_cannot_attach_the_inspector(tmp_path, monkeypatch):
     """A server has ONE orchestrated application: the second attach is fatal."""
     monkeypatch.setenv(INSPECTOR_ENV_VAR, "1")
     server = AsgiServer(config=inspector_recipe_for(tmp_path))
     front = server.applications["site"]
-    await LifespanRunner(server).startup()
+    runner = LifespanRunner(server)
+    await runner.startup()
+    await wait_enabled(server, "site")
 
     second = InspectorScriptedFront(code="site2", mount="other")
     server.register_application(second)
@@ -205,3 +209,5 @@ async def test_a_second_front_on_one_server_does_not_boot(tmp_path, monkeypatch)
     server_app = server.applications["_server"]
     assert isinstance(server_app, ServerApplication)
     assert server_app.sections["inspector"].application is front
+
+    await runner.shutdown()

@@ -29,6 +29,8 @@ from kajenn import (
 from kajenn.types import Message, Scope
 from kajenn_orchestra import ConfigurationProfilesApplication
 
+from .conftest import start_server
+
 
 class Empty(RoutedApplication):
     """Do-nothing primary application for the mounted sysop app."""
@@ -62,6 +64,7 @@ def drive() -> Callable[..., object]:
         async def send(message: Message) -> None:
             sent.append(message)
 
+        await start_server(server)
         await server(scope, receive, send)  # type: ignore[operator]
         return sent
 
@@ -261,7 +264,7 @@ async def test_mcp_lists_and_calls_profile_tools(
     async def mcp(envelope: dict[str, Any]) -> dict[str, Any]:
         sent = await drive(
             server,
-            "/_sysop/mcp",
+            "/_sysop/_meta/mcp",
             method="POST",
             headers=[(b"content-type", b"application/json")],
             body=json.dumps(envelope).encode(),
@@ -271,10 +274,10 @@ async def test_mcp_lists_and_calls_profile_tools(
 
     listed = await mcp({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
     assert {tool["name"] for tool in listed["result"]["tools"]} == {
-        "delete",
-        "profiles",
-        "read",
-        "save",
+        "configuration.delete",
+        "configuration.profiles",
+        "configuration.read",
+        "configuration.save",
     }
 
     saved = await mcp(
@@ -283,7 +286,7 @@ async def test_mcp_lists_and_calls_profile_tools(
             "id": 2,
             "method": "tools/call",
             "params": {
-                "name": "save",
+                "name": "configuration.save",
                 "arguments": {"name": "cpu50", "body_data": {"cpu_admission_close_percent": 50}},
             },
         }
@@ -295,7 +298,7 @@ async def test_mcp_lists_and_calls_profile_tools(
             "jsonrpc": "2.0",
             "id": 3,
             "method": "tools/call",
-            "params": {"name": "read", "arguments": {"name": "cpu50"}},
+            "params": {"name": "configuration.read", "arguments": {"name": "cpu50"}},
         }
     )
     assert read["result"]["structuredContent"]["profile"] == {
@@ -307,7 +310,7 @@ async def test_mcp_lists_and_calls_profile_tools(
             "jsonrpc": "2.0",
             "id": 4,
             "method": "tools/call",
-            "params": {"name": "delete", "arguments": {"name": "cpu50"}},
+            "params": {"name": "configuration.delete", "arguments": {"name": "cpu50"}},
         }
     )
     assert deleted["result"]["structuredContent"] == {"name": "cpu50", "deleted": True}

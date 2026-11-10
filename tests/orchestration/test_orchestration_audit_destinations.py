@@ -30,6 +30,7 @@ from kajenn_orchestra.spa_app import ORCHESTRATION_ROOT
 from kajenn_orchestra.orchestration.group_policy import GroupPolicyError
 from kajenn_orchestra.orchestration.spa_commander import ORDERS_LOGGER_NAME
 
+from ..conftest import start_server
 from ..test_spa_app_profiles import ask, boot, pool_server, written
 
 SPA_APP_LOGGER = "kajenn_orchestra.spa_app"
@@ -65,7 +66,7 @@ async def test_reload_handler_errors_audited_as_rejected(tmp_path, caplog):
     # wf:contract: "rejected: ...".
     folder = tmp_path / "profiles"
     server = pool_server(tmp_path, profiles_path=folder, control_enabled=True)
-    await boot(server)
+    await start_server(server)
     (folder / "corrupt.json").write_text("{not json")
 
     with caplog.at_level(logging.INFO, logger=ORDERS_LOGGER_NAME):
@@ -97,7 +98,7 @@ async def test_request_parser_400_is_not_orchestration_audit(tmp_path, caplog):
     # wf:contract: decoding, issue #87) and leaves NO
     # wf:contract: orchestration log line: the single exclusion from the audit.
     server = pool_server(tmp_path, control_enabled=True)
-    await boot(server)
+    await start_server(server)
 
     with caplog.at_level(logging.INFO, logger=ORDERS_LOGGER_NAME):
         status, _ = await ask(

@@ -85,7 +85,7 @@ from kajenn_orchestra.orchestration import AssignmentRefused, FreezeHandler, Gro
 from kajenn_orchestra.orchestration.spa_commander import GUEST_PREFIX
 from kajenn_orchestra.orchestration.worker_handler import WorkerHandler
 
-from ..conftest import LifespanRunner, ask_app, get_answer_header
+from ..conftest import LifespanRunner, ask_app, get_answer_header, wait_enabled
 from .conftest import kill_process, wait_for
 from .x_spa_worker import X_SpaWorker
 
@@ -307,6 +307,7 @@ async def server(story_root, monkeypatch):
     asgi_server = AsgiServer(config=story_root / "pool_config.py")
     runner = LifespanRunner(asgi_server)
     await runner.startup()
+    await wait_enabled(asgi_server, *asgi_server.applications)
     yield asgi_server
     await runner.shutdown()
 
