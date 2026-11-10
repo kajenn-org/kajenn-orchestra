@@ -44,7 +44,7 @@ from kajenn_orchestra.spa_app import (
 from kajenn.server import QUITTING, REFUSED_RETRY_AFTER_SECONDS, STOPPING
 from kajenn_orchestra.orchestration import AssignmentRefused, SiteFailedRequest, SpaCommander
 
-from .conftest import LifespanRunner, ask_app, get_answer_header
+from .conftest import LifespanRunner, ask_app, get_answer_header, wait_enabled
 
 
 class ScriptedCommander(SpaCommander):
@@ -121,6 +121,7 @@ async def started(server):
     """The same server, through its own lifespan: the pool exists and is up."""
     runner = LifespanRunner(server)
     await runner.startup()
+    await wait_enabled(server, *server.applications)
     yield server
     await runner.shutdown()
 
@@ -136,6 +137,7 @@ async def test_the_pool_is_built_from_the_recipe_when_the_server_starts(server):
         front.commander
 
     await runner.startup()
+    await wait_enabled(server, "site0")
 
     assert isinstance(front.commander, ScriptedCommander)
     assert front.commander.started is True
@@ -159,6 +161,7 @@ async def test_two_fronts_each_own_their_pool(tmp_path):
     runner = LifespanRunner(server)
 
     await runner.startup()
+    await wait_enabled(server, "site0", "site1")
 
     first = server.applications["site0"].commander
     second = server.applications["site1"].commander

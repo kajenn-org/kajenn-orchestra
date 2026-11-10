@@ -30,7 +30,7 @@ front.orchestration(profiles_path="/var/spa/profiles", control_enabled=True)
 
 The two paths must name the same folder for a stored profile to be reachable by
 name from the control surface. `profile_name` on the same node puts one in force
-at boot; named without a folder, missing, or invalid, the server does not start.
+at boot; named without a folder, missing, or invalid, the front gives up: only `_server` answers and `/readyz` is not ready.
 
 Mounting is the gate. A server that does not construct
 `ConfigurationProfilesApplication` has no write surface at all.
@@ -38,9 +38,9 @@ Mounting is the gate. A server that does not construct
 ## The archive
 
 `ConfigurationProfilesApplication` (`configuration_profiles.py`) is a
-`McpOpenApiApplication` with `code = mount = "_sysop"`, mounting its routing
-class under `api_name="configuration"`. The same CRUD operations answer over
-REST and as MCP tools.
+`RoutedApplication` with `code = mount = "_sysop"`, attaching its routing class
+as the branch `configuration`. The same CRUD operations answer over HTTP and as
+MCP tools.
 
 | Face | Address |
 |---|---|
@@ -49,7 +49,7 @@ REST and as MCP tools.
 | Read | `GET /_sysop/configuration/read?name=busy_hours` |
 | Save | `POST /_sysop/configuration/save?name=busy_hours` with a JSON object body |
 | Delete | `DELETE /_sysop/configuration/delete?name=busy_hours` |
-| MCP | `POST /_sysop/mcp` — the tools `profiles`, `read`, `save`, `delete` |
+| MCP | `POST /_sysop/_meta/mcp` — the tools `configuration.profiles`, `configuration.read`, `configuration.save`, `configuration.delete` |
 
 ```console
 $ curl -X POST "http://127.0.0.1:8351/_sysop/configuration/save?name=busy_hours" \

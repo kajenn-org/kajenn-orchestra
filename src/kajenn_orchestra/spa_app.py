@@ -472,7 +472,8 @@ class WsxControl(RoutingClass):
         # it, so this surface arms it on its own router, as the console does.
         self.route.plug("pydantic")
 
-    @route()
+    # The websocket sets the channel ``wsx`` (kajenn-org/kajenn#119).
+    @route(channel_channels="wsx")
     async def openchannel(
         self, parameters: dict[str, Any] | None = None, _request=None
     ) -> dict[str, Any]:
@@ -526,6 +527,11 @@ class SpaApplication(RoutedApplication):
     forwards_payloads = True
 
     grammar = SpaApplicationGrammar
+
+    #: A front that cannot build its pool leaves the server answering on
+    #: ``_server`` only, with ``/readyz`` not ready. A recipe may write
+    #: ``mandatory=False`` on the application node.
+    mandatory = True
 
     @property
     def handshake_cookie(self) -> str | None:
@@ -637,6 +643,18 @@ class SpaApplication(RoutedApplication):
         return bool(self.route.node(path).error != "not_found")
 
     async def on_startup(self) -> None:
+        """Build the pool; a refused boot makes this front give up.
+
+        A refusal of :meth:`build_pool` ends in ``server.application_failed``:
+        the front is removed and, being ``mandatory``, leaves only ``_server``
+        answering, with ``/readyz`` not ready. The process stays up.
+        """
+        try:
+            await self.build_pool()
+        except FatalBootError:
+            await self.server.application_failed(self)
+
+    async def build_pool(self) -> None:
         """Read the orchestration, build the pool, bring it up, then open the door.
 
         The vertex is born HERE and not in the constructor: its words live under
@@ -675,10 +693,9 @@ class SpaApplication(RoutedApplication):
         BEFORE the vertex is built, so the pool is born already effective. What
         the composition refuses — a profile that is not there, one the schema
         rejects, a machine with no single group to give the setpoints to — is
-        said once on this module's logger and raised as ``FatalBootError``, the
-        one exception the lifespan does not swallow: the server does not start,
-        because a pool nobody could configure as asked is not the pool that was
-        asked for.
+        said once on this module's logger and raised as ``FatalBootError``, which
+        :meth:`on_startup` turns into the front giving up: a pool nobody could
+        configure as asked is not the pool that was asked for.
         """
         if self._commander is not None:
             return
@@ -764,18 +781,17 @@ class SpaApplication(RoutedApplication):
             self._commander = None
 
     def refuse_boot(self, reason: str, cause: Exception | None = None) -> NoReturn:
-        """Say the boot failed once, on this module's logger, and make it fatal.
+        """Say the boot failed once, on this module's logger, and stop it.
 
         Args:
             reason: what is wrong, in the front's own words.
-            cause: the exception underneath, when there is one — the tests read
-                it back off ``__cause__``.
+            cause: the exception underneath, when there is one.
 
         Raises:
-            FatalBootError: always. It is the one exception the lifespan does not
-                swallow on startup, so uvicorn receives ``lifespan.startup.failed``.
+            FatalBootError: always. :meth:`on_startup` catches it and the front
+                gives up through ``server.application_failed``.
         """
-        failure = f"Front {self.code}: {reason}, the server does not start"
+        failure = f"Front {self.code}: {reason}, the front gives up"
         self._logger.error(failure)
         raise FatalBootError(failure) from cause
 

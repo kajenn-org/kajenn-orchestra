@@ -37,7 +37,7 @@ from .orchestration_profile_store import (
     OrchestrationProfileNotFoundError,
     OrchestrationProfileStore,
 )
-from kajenn.applications.mcp import McpOpenApiApplication
+from kajenn.routed_application import RoutedApplication
 
 __all__ = ["ConfigurationProfiles", "ConfigurationProfilesApplication"]
 
@@ -47,24 +47,16 @@ RESOURCES_DIR = Path(__file__).parent / "resources"
 class ConfigurationProfiles(RoutingClass):
     """REST and MCP surface backed by one directory of orchestration profiles."""
 
-    openapi_info: ClassVar[dict[str, str]] = {
-        "title": "Orchestration profiles",
-        "version": "1.0.0",
-        "description": "Read and write named orchestration profiles in a directory.",
-    }
-
     def __init__(self, folder: str | Path) -> None:
         self.store = OrchestrationProfileStore(folder)
         self.folder = self.store.folder
-        self.route.plug("channel")
-        self.route.channel.configure(channels="rest")
 
-    @route(media_type="text/html", channel_channels="rest")
+    @route(media_type="text/html", channel_channels="api")
     def index(self) -> str:
         """Serve the small profile editor."""
         return (RESOURCES_DIR / "configuration_profiles.html").read_text()
 
-    @route(channel_channels="mcp,rest")
+    @route(channel_channels="mcp,api")
     def profiles(self) -> dict[str, Any]:
         """List the JSON profiles currently present in the configured folder."""
         result: list[dict[str, Any]] = []
@@ -82,7 +74,7 @@ class ConfigurationProfiles(RoutingClass):
             )
         return {"folder": str(self.folder), "profiles": result}
 
-    @route(channel_channels="mcp,rest")
+    @route(channel_channels="mcp,api")
     def read(self, name: str) -> dict[str, Any]:
         """Read one named JSON profile.
 
@@ -92,7 +84,7 @@ class ConfigurationProfiles(RoutingClass):
         with self._http_errors():
             return {"name": self.store.get_profile_name(name), "profile": self.store.read(name)}
 
-    @route(openapi_method="post", channel_channels="mcp,rest")
+    @route(openapi_method="post", channel_channels="mcp,api")
     def save(self, name: str, body_data: dict[str, Any] | None = None) -> dict[str, Any]:
         """Create or replace one named JSON profile atomically.
 
@@ -105,7 +97,7 @@ class ConfigurationProfiles(RoutingClass):
             path = self.store.write(name, body_data)
         return {"name": profile_name, "filename": path.name, "profile": body_data}
 
-    @route(openapi_method="delete", channel_channels="mcp,rest")
+    @route(openapi_method="delete", channel_channels="mcp,api")
     def delete(self, name: str) -> dict[str, Any]:
         """Delete one named JSON profile.
 
@@ -126,14 +118,14 @@ class ConfigurationProfiles(RoutingClass):
             raise HTTPBadRequest(str(error)) from error
 
 
-class ConfigurationProfilesApplication(McpOpenApiApplication):
+class ConfigurationProfilesApplication(RoutedApplication):
     """Ready-to-mount profile archive.
 
     Example::
 
         ConfigurationProfilesApplication(folder="/srv/site/data/_orchestration_profiles")
 
-    Its defaults produce ``/_sysop/configuration`` and ``/_sysop/mcp``.
+    Its defaults produce ``/_sysop/configuration`` and ``/_sysop/_meta/mcp``.
     Mounting is the gate: recipes that do not need remote profile editing must
     leave this application out.
     """
@@ -142,10 +134,13 @@ class ConfigurationProfilesApplication(McpOpenApiApplication):
     mount = "_sysop"
     mcp_name = "kajenn-configuration-profiles"
 
+    openapi_info: ClassVar[dict[str, str]] = {
+        "title": "Orchestration profiles",
+        "version": "1.0.0",
+        "description": "Read and write named orchestration profiles in a directory.",
+    }
+
     def __init__(self, folder: str | Path, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
         self.profile_store = ConfigurationProfiles(folder)
-        super().__init__(
-            routing_class=self.profile_store,
-            api_name="configuration",
-            **kwargs,
-        )
+        self.route.add_branches({"name": "configuration", "instance": self.profile_store})
