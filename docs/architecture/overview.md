@@ -268,7 +268,8 @@ flowchart TD
 
 `SpaApplication.boot_group_settings` composes the four levels at startup, so the
 pool is born already effective; a named profile that is missing or invalid makes
-the boot raise `FatalBootError` and the server does not start. At runtime,
+the front give up: `on_startup` calls `server.application_failed`, and the
+front being `mandatory`, only `_server` answers. At runtime,
 `OrchestrationControl` — mounted under the front's `_orchestration` root when
 `control_enabled` is on — calls `SpaApplication.apply_settings`, which calls
 `SpaCommander.apply_group_settings`. That method runs under

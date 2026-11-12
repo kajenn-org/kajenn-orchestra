@@ -13,6 +13,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Before PyPI: a tag without its CHANGELOG.md section stops here.
+      - name: Extract the changelog section of the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '$0 ~ "^## \\[" v "\\]" {on=1; next}
+            on && /^## \[/ {exit} on {print}' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+          test -s "$RUNNER_TEMP/release-notes.md" || { echo "CHANGELOG.md has no section for $version"; exit 1; }
+
+      # Outside the checkout, so the sdist does not pick it up.
+      - name: Upload the release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: ${{ runner.temp }}/release-notes.md
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -70,6 +87,11 @@ jobs:
           name: python-package-distributions
           path: dist/
 
+      - name: Download the release notes
+        uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -77,5 +99,5 @@ jobs:
           gh release create '${{ github.ref_name }}' \
             --repo='${{ github.repository }}' \
             --title='${{ github.ref_name }}' \
-            --generate-notes \
+            --notes-file=release-notes.md \
             dist/*

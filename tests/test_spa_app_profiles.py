@@ -46,6 +46,12 @@ from kajenn_orchestra.orchestration import SpaCommander
 from kajenn_orchestra.orchestration.group_policy import GroupPolicyError
 from kajenn_orchestra.orchestration.spa_commander import SingleGroupRequired
 
+from .conftest import (
+    assert_only_the_server_application_answers,
+    start_server,
+    start_server_without,
+)
+
 SITE_BODY = b"the hosted site answered"
 
 
@@ -137,14 +143,15 @@ def pool_server(
 
 
 async def boot(server: AsgiServer) -> None:
-    """Start the front directly, the refusal coming out unwrapped.
+    """Build the front's pool directly, the refusal coming out unwrapped.
 
-    ``on_startup`` declares any boot failure fatal by raising ``FatalBootError``
+    ``build_pool`` declares any boot failure fatal by raising ``FatalBootError``
     around the refusal; what these tests assert is the refusal itself, so the
-    cause comes back out as it was raised.
+    cause comes back out as it was raised. The front stays disabled: a test that
+    sends requests starts the server with ``start_server`` instead.
     """
     try:
-        await server.applications["site0"].on_startup()
+        await server.applications["site0"].build_pool()
     except FatalBootError as fatal:
         assert fatal.__cause__ is not None
         raise fatal.__cause__ from None
@@ -261,9 +268,10 @@ async def test_boot_without_named_profile_unchanged(tmp_path):
     }
 
 
-async def test_boot_failure_missing_named_profile(tmp_path):
-    # wf:contract: T3 — a named profile that does not exist makes on_startup
-    # wf:contract: raise: the lifespan fails and the server does not start.
+async def test_boot_failure_missing_named_profile(tmp_path, caplog):
+    # wf:contract: T3 — a named profile that does not exist makes build_pool
+    # wf:contract: raise: through the lifespan the startup completes, the front
+    # wf:contract: gives up and is removed, and only _server answers.
     server = pool_server(tmp_path, profiles_path=tmp_path / "profiles", profile_name="nowhere")
 
     with pytest.raises(OrchestrationProfileNotFoundError):
@@ -273,15 +281,20 @@ async def test_boot_failure_missing_named_profile(tmp_path):
     with pytest.raises(RuntimeError):
         server.applications["site0"].commander
 
-    # And the lifespan itself fails, so the server does not start.
+    # Through the lifespan the startup completes and the front gives up: it is
+    # removed, and only the server application answers.
     fresh = pool_server(tmp_path, profiles_path=tmp_path / "profiles", profile_name="nowhere")
-    sent = await lifespan_startup(fresh)
-    assert not any(message["type"] == "lifespan.startup.complete" for message in sent)
+    with caplog.at_level(logging.ERROR, logger="kajenn_orchestra.spa_app"):
+        sent = await start_server_without(fresh, "site0")
+    assert [message["type"] for message in sent] == ["lifespan.startup.complete"]
+    assert "site0" not in fresh.applications
+    await assert_only_the_server_application_answers(fresh)
+    assert "nowhere" in caplog.text
 
 
 async def test_boot_failure_invalid_profile(tmp_path, caplog):
     # wf:contract: T4 — corrupt JSON, non-object, oversize, symlink or schema
-    # wf:contract: violation on the named profile: on_startup raises, the
+    # wf:contract: violation on the named profile: build_pool raises, the
     # wf:contract: violations are in the message on the spa app module logger.
     folder = tmp_path / "profiles"
     written(folder, "wrong", {"worker_memory_admission_percent": 200.0})
@@ -318,7 +331,7 @@ async def test_zero_or_multi_group_rejection(tmp_path):
     # Two groups, the gate on and nothing named: the boot is today's, and the
     # apply is what refuses — it is the one that needs a single group.
     gated = pool_server(tmp_path, ("standard", "heavy"), control_enabled=True)
-    await boot(gated)
+    await start_server(gated)
     assert set(gated.applications["site0"].commander.group_map) == {"standard", "heavy"}
 
     status, answer = await ask(
@@ -341,7 +354,7 @@ async def test_router_gate_off_and_on(tmp_path):
     # wf:contract: (the path goes to the hosted site); gate on: the three routes
     # wf:contract: resolve under _orchestration.
     closed = pool_server(tmp_path)
-    await boot(closed)
+    await start_server(closed)
     front = closed.applications["site0"]
     assert ORCHESTRATION_ROOT not in front.internal_roots
 
@@ -366,7 +379,7 @@ async def test_http_contract_success_and_errors(tmp_path):
     # wf:contract: group; 503 commander not started or server not RUNNING.
     folder = tmp_path / "profiles"
     server = pool_server(tmp_path, profiles_path=folder, control_enabled=True)
-    await boot(server)
+    await start_server(server)
     server_commander = server.applications["site0"].commander
     apply_path = f"/{ORCHESTRATION_ROOT}/apply"
     reload_path = f"/{ORCHESTRATION_ROOT}/reload"
@@ -412,7 +425,7 @@ async def test_http_contract_success_and_errors(tmp_path):
 
     # 409 — the machine has no single group the setpoints could govern.
     several = pool_server(tmp_path, ("standard", "heavy"), control_enabled=True)
-    await boot(several)
+    await start_server(several)
     status, answer = await ask(several, apply_path, method="POST", body={})
     assert status == 409
 
@@ -445,7 +458,7 @@ async def test_profile_level_replacement(tmp_path):
         control_enabled=True,
         env_settings={"worker_max_users": 16},
     )
-    await boot(server)
+    await start_server(server)
     reload_path = f"/{ORCHESTRATION_ROOT}/reload"
 
     status, first = await ask(server, reload_path, method="POST", body={"name": "p1"})
@@ -471,7 +484,7 @@ async def test_invalid_apply_all_or_nothing(tmp_path):
     # wf:contract: does not move, and the response is 400 with the complete
     # wf:contract: violations list.
     server = pool_server(tmp_path, control_enabled=True)
-    await boot(server)
+    await start_server(server)
     commander = server.applications["site0"].commander
     before = commander.configured_group.policy
 
@@ -497,7 +510,7 @@ async def test_status_introspection(tmp_path):
     folder = tmp_path / "profiles"
     written(folder, "fast", {"worker_memory_admission_percent": 62.0})
     server = pool_server(tmp_path, profiles_path=folder, control_enabled=True)
-    await boot(server)
+    await start_server(server)
     commander = server.applications["site0"].commander
 
     status, applied = await ask(
@@ -557,7 +570,7 @@ async def test_the_retirement_quiet_travels_the_four_levels(tmp_path):
 
 async def test_a_profile_with_a_negative_quiet_fails_the_boot(tmp_path):
     # wf:contract: the quiet is validated with the rest of the policy: a stored
-    # wf:contract: profile carrying a negative one does not start the server.
+    # wf:contract: profile carrying a negative one makes build_pool refuse.
     folder = tmp_path / "profiles"
     written(folder, "wrong", {"cpu_retirement_quiet_seconds": -1.0})
     server = pool_server(tmp_path, profiles_path=folder, profile_name="wrong")

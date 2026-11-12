@@ -59,16 +59,17 @@ instrument.
 
 ## The MCP console
 
-`SpaConsoleMcpApplication` (`spa_console.py`) is an MCP application whose whole
-tool surface is a debug door into the pool's processes. It exists only where a
+`SpaConsoleMcpApplication` (`spa_console.py`) is a `RoutedApplication` whose
+whole MCP tool surface, on `<mount>/_meta/mcp`, is a debug door into the pool's
+processes. It exists only where a
 recipe mounts it.
 
 Two tools:
 
-- `targets` — every process the door can look into, by SPA application code. The
+- `console.targets` — every process the door can look into, by SPA application code. The
   list is `commander` followed by the name of every worker handler of every
   group.
-- `eval` — evaluate one Python expression in one of them and answer its `repr`.
+- `console.eval` — evaluate one Python expression in one of them and answer its `repr`.
   `target` defaults to `commander`; `app` names the SPA application code and is
   needed only when the server mounts more than one front. The namespace holds
   `commander` on the vertex and `worker` inside a child.
