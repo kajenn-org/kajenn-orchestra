@@ -293,6 +293,7 @@ class TestACallerWithNoCookie:
                 "genro.page_id": PAGE,
             },
             no_body,
+            application=front,
         )
         await request.init()
         with pytest.raises(HTTPBadRequest, match="no cookie"):
