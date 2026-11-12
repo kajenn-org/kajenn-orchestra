@@ -27,13 +27,15 @@ import io
 import json
 import os
 import signal
+import subprocess
+import sys
 import threading
 import time
 from typing import Any
 
 import pytest
 
-from kajenn_orchestra.orchestration import TemplateEntry
+from kajenn_orchestra.orchestration.template_entry import TemplateEntry
 
 @pytest.fixture(autouse=True)
 def sigchld_put_back():
@@ -250,3 +252,54 @@ def test_the_forked_child_takes_its_own_session_and_finds_payload_and_engine(tmp
     assert found["engine"] == "engine-plain"
     assert found["pipes_closed"] is True
     assert found["session"] != os.getsid(0)
+
+
+# ----------------------------------------------------------------------
+# The real process, started as the GroupHandler starts it
+# ----------------------------------------------------------------------
+
+
+def run_template_module(*python_options: str) -> subprocess.CompletedProcess[str]:
+    """One real template: launched with ``-m``, told what to build, then left without a pipe."""
+    return subprocess.run(
+        [sys.executable, *python_options, "-m", "kajenn_orchestra.orchestration.template_entry"],
+        input=launch_line(engine_factory="tests.orchestration.engine_stub:EngineFactory"),
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+
+def test_a_template_that_leaves_closes_the_channel_it_opened(repo_on_pythonpath):
+    # The answer channel is this process's own duplicate of the real stdout:
+    # left open, Python reports an unclosed file when the template leaves.
+    done = run_template_module("-W", "always::ResourceWarning")
+
+    assert done.returncode == 0
+    assert "ResourceWarning" not in done.stderr
+
+
+def test_the_template_module_is_loaded_once_when_started_as_a_program(repo_on_pythonpath):
+    # A module the package had already imported is loaded a second time when it
+    # is started with ``-m``, and Python says so with a RuntimeWarning: raised as
+    # an error here, it would end the process before it reads its first line.
+    done = run_template_module("-W", "error::RuntimeWarning")
+
+    assert done.returncode == 0
+    assert "RuntimeWarning" not in done.stderr
+
+
+def test_the_worker_module_is_loaded_once_when_started_as_a_program():
+    # Started with nothing to serve the worker shell leaves at once; what is
+    # asserted is that it got as far as its own code, loaded one time only.
+    done = subprocess.run(
+        [sys.executable, "-W", "error::RuntimeWarning", "-m",
+         "kajenn_orchestra.orchestration.worker_entry"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert "found in sys.modules" not in done.stderr
+    assert "RuntimeWarning" not in done.stderr
+
