@@ -243,8 +243,10 @@ async def test_on_request_served_runs_after_every_request_failed_ones_included(w
     worker.wsgi_app = wsgi_app
     await worker._serve_request(payload)
     worker.wsgi_app = failing_app
-    with pytest.raises(RuntimeError):
-        await worker._serve_request(payload)
+    # The site that raised is answered 500 by the seam (#27); the hook runs all
+    # the same.
+    failed = await worker._serve_request(payload)
+    assert failed["status"] == 500
     assert worker.served == ["XT_Slot", "XT_Slot"]
 
 

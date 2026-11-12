@@ -507,7 +507,11 @@ async def test_a_site_that_falls_over_answers_with_its_failure_and_frees_the_use
         timeout=5.0,
     )
 
-    assert reply["error"] == "RuntimeError: the site fell over"
+    # The site that fell over is the application's failure, answered by the
+    # worker as an ordinary 500 (#27): no error travels on the wire.
+    assert reply.get("error") is None
+    assert reply["result"]["status"] == 500
+    assert reply["result"]["body"] == b"Internal Server Error"
     frozen = await wire.connector.call(FREEZE_USER_OP_PATH, {"user": "mario"}, timeout=5.0)
     assert frozen["result"] == {"frozen": "mario"}
 
