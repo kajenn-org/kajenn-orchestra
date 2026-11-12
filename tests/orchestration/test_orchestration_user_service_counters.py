@@ -81,8 +81,10 @@ async def test_a_call_that_fails_is_counted_all_the_same(worker):
     worker.wsgi_app = failing_app
     worker.add_connection("cid-a", "mario")
 
-    with pytest.raises(RuntimeError):
-        await worker._serve_request(http_payload("cid-a", "mario"))
+    # The site that raised is answered 500 by the seam (#27): still a call
+    # that failed, and still counted.
+    failed = await worker._serve_request(http_payload("cid-a", "mario"))
+    assert failed["status"] == 500
 
     item = worker.user_register.get("mario")
     assert item["served_call_count"] == 1

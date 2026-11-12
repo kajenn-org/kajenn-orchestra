@@ -29,6 +29,7 @@ The shortcut is covered by the whole existing rig, which passes unchanged:
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 import pytest
@@ -66,6 +67,15 @@ def body_of(served: dict[str, Any]) -> bytes:
 
 def headers_of(served: dict[str, Any]) -> dict[str, str]:
     return {name.lower(): value for name, value in served["headers"]}
+
+
+SEAM_LOGGER = "kajenn_orchestra.environ"
+
+
+def failure_logged(caplog: pytest.LogCaptureFixture) -> BaseException:
+    """The one exception the seam logged with its traceback."""
+    [record] = [record for record in caplog.records if record.exc_info]
+    return record.exc_info[1]
 
 
 class XT_AsgiWorker(SpaWorker):
@@ -548,7 +558,7 @@ class TestAMessageOfAPage:
 
 class TestWhatTheSeamRefuses:
     async def test_an_application_that_answers_nothing_is_an_explicit_error(
-        self, tmp_path
+        self, tmp_path, caplog
     ) -> None:
         class XT_SilentWorker(SpaWorker):
             def __init__(self, name: str, **kwargs: Any) -> None:
@@ -560,7 +570,95 @@ class TestWhatTheSeamRefuses:
 
         worker = worker_of(XT_SilentWorker, tmp_path)
         try:
-            with pytest.raises(RuntimeError, match="did not start a response"):
+            with caplog.at_level(logging.ERROR, logger=SEAM_LOGGER):
+                served = await worker._serve_request(http_call())
+            # The application broke its own protocol: the worker is alive and
+            # its application failed the request, so the caller reads a 500 and
+            # the log names the reason (#27).
+            assert served["status"] == 500
+            assert "did not start a response" in str(failure_logged(caplog))
+        finally:
+            worker.exit_process()
+
+
+class TestAnApplicationThatRaises:
+    """The hosted application failed the request: 500, never the 502 (#27).
+
+    The worker is alive and received the request; what failed is its
+    application. Every WSGI server and the kajenn core answer that 500. The 502
+    stays for a worker that produced no answer at all, and what failed inside
+    the site stays in the log.
+    """
+
+    async def test_an_asgi_application_that_raises_answers_500(self, tmp_path, caplog) -> None:
+        class XT_RaisingWorker(SpaWorker):
+            def __init__(self, name: str, **kwargs: Any) -> None:
+                super().__init__(name, **kwargs)
+                self.asgi_app = self.application
+
+            async def application(self, scope, receive, send) -> None:
+                raise ValueError("relation invoices_2024 does not exist")
+
+        worker = worker_of(XT_RaisingWorker, tmp_path)
+        try:
+            with caplog.at_level(logging.ERROR, logger=SEAM_LOGGER):
+                served = await worker._serve_request(http_call())
+            assert served["status"] == 500
+            assert body_of(served) == b"Internal Server Error"
+            assert headers_of(served)["content-type"] == "text/plain; charset=utf-8"
+            assert "invoices_2024" in str(failure_logged(caplog))
+        finally:
+            worker.exit_process()
+
+    async def test_a_wsgi_site_that_raises_answers_500(self, tmp_path, caplog) -> None:
+        def site(environ: dict[str, Any], start_response: Any) -> list[bytes]:
+            raise RuntimeError("Invalid date - No numbers were found in input")
+
+        worker = worker_of(SpaWorker, tmp_path)
+        try:
+            worker.wsgi_app = site
+            with caplog.at_level(logging.ERROR, logger=SEAM_LOGGER):
+                served = await worker._serve_request(http_call())
+            assert served["status"] == 500
+            assert body_of(served) == b"Internal Server Error"
+            assert "Invalid date" in str(failure_logged(caplog))
+        finally:
+            worker.exit_process()
+
+    async def test_an_answer_already_started_is_replaced_by_the_500(self, tmp_path) -> None:
+        # The answer is buffered: nothing reached the caller when the
+        # application raised, so the half answer is dropped whole.
+        class XT_HalfWorker(SpaWorker):
+            def __init__(self, name: str, **kwargs: Any) -> None:
+                super().__init__(name, **kwargs)
+                self.asgi_app = self.application
+
+            async def application(self, scope, receive, send) -> None:
+                await send({"type": "http.response.start", "status": 200, "headers": []})
+                raise ValueError("failed while writing")
+
+        worker = worker_of(XT_HalfWorker, tmp_path)
+        try:
+            served = await worker._serve_request(http_call())
+            assert served["status"] == 500
+            assert body_of(served) == b"Internal Server Error"
+        finally:
+            worker.exit_process()
+
+    async def test_a_refusal_raised_by_the_application_keeps_its_status(self, tmp_path) -> None:
+        # A refusal knows what to answer: it is not a failure of the site.
+        class XT_RefusingWorker(SpaWorker):
+            def __init__(self, name: str, **kwargs: Any) -> None:
+                super().__init__(name, **kwargs)
+                self.asgi_app = self.application
+
+            async def application(self, scope, receive, send) -> None:
+                raise HTTPException(403, "not yours")
+
+        worker = worker_of(XT_RefusingWorker, tmp_path)
+        try:
+            with pytest.raises(HTTPException, match="not yours") as refused:
                 await worker._serve_request(http_call())
+            assert refused.value.status == 403
         finally:
             worker.exit_process()

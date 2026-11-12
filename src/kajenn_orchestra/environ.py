@@ -29,10 +29,12 @@ transport; the worker receives only explicitly defined routing context.
 from __future__ import annotations
 
 import io
+import logging
 import sys
 from typing import Any, Callable, Iterable
 
 from kajenn.asgi_endpoint import BufferedAsgiEndpoint
+from kajenn.exceptions import HTTPException
 
 __all__ = ["AsgiSeam", "WsgiSeam"]
 
@@ -53,6 +55,7 @@ class AsgiSeam:
             asgi_app: the application to call, ``(scope, receive, send)``.
         """
         self.asgi_app = asgi_app
+        self.logger = logging.getLogger(__name__)
 
     def build_scope(self, http: dict[str, Any], identity: str | None = None) -> dict[str, Any]:
         """The ASGI scope for one ``http`` dict.
@@ -111,15 +114,33 @@ class AsgiSeam:
 
         Returns:
             ``{"status", "headers", "body"}``, the body raw bytes — the same shape
-            the WSGI road produced before this seam existed.
+            the WSGI road produced before this seam existed. An application that
+            raised, or broke the ASGI protocol, answers ``500 Internal Server
+            Error`` (#27): the worker is alive and its application failed the
+            request, as every WSGI server and the kajenn core answer it. The
+            traceback goes to the log and never into the body. The answer is
+            buffered, so a response the application had started is dropped
+            whole.
 
         Raises:
-            RuntimeError: the application answered nothing.
+            HTTPException: a refusal the application raised, with the status it
+                named.
         """
         scope = self.build_scope(http, identity)
-        return await BufferedAsgiEndpoint(self.asgi_app, reject_streaming=False).serve(
-            scope, http.get("body") or b""
-        )
+        try:
+            return await BufferedAsgiEndpoint(self.asgi_app, reject_streaming=False).serve(
+                scope, http.get("body") or b""
+            )
+        except HTTPException:
+            raise
+        except Exception:
+            self.logger.exception("The hosted application failed %s %s",
+                                  scope["method"], scope["path"])
+            return {
+                "status": 500,
+                "headers": [("content-type", "text/plain; charset=utf-8")],
+                "body": b"Internal Server Error",
+            }
 
 
 class WsgiSeam:

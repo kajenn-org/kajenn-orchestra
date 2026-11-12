@@ -1143,9 +1143,10 @@ class SpaApplication(RoutedApplication):
         Returns:
             The refusal the worker named, with ITS words, when it named a
             status — a page that never opened its channel is a 409 and the
-            browser must read why (#70). Everything else is the 502 of an
-            upstream that broke, whose reason stays in the log alone: what
-            failed inside the site is nobody's business out here.
+            browser must read why (#70). Everything else is the 502 of a worker
+            that produced no answer: its reason stays in the log alone. An
+            application that raised inside a live worker never comes here — the
+            worker already answered it 500, as an ordinary reply (#27).
         """
         if failure is not None and failure.status is not None:
             return Response(

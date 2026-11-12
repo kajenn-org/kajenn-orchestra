@@ -49,7 +49,7 @@ class OpaqueSpaWorker(SpaWorker):
         if method == "WSK" and path == "/push":
             self.send_message(PAGE, "/client/push", OpaqueValue("worker-push"))
             answer = to_tytx(OpaqueValue("push-ack"), "json").encode()
-        elif method == "WSK" and path == "/error":
+        elif path == "/error":
             raise RuntimeError("opaque worker error")
         elif method == "WSK" and body:
             answer = body
