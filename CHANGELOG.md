@@ -5,6 +5,17 @@ All notable changes to kajenn-orchestra are recorded here. The format follows
 [Semantic Versioning](https://semver.org/). Releases before 0.6.0 are listed
 on [GitHub Releases](https://github.com/kajenn-org/kajenn-orchestra/releases).
 
+## [0.6.1] - 2026-11-12
+
+### Fixed
+
+- An exception raised by the application hosted in a worker answers
+  `500 Internal Server Error` instead of `502 Bad Gateway`, over HTTP and on
+  the page socket. The traceback goes to the log, never in the body; a
+  response the application had started is dropped whole. An `HTTPException`
+  raised by the application keeps its status. `502` stays for a worker that
+  produced no answer (#27).
+
 ## [0.6.0] - 2026-11-10
 
 ### Breaking
