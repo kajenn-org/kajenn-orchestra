@@ -44,6 +44,8 @@ dependencies = [
 test = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    # [tool.coverage.run] patch: the option exists from coverage 7.10.
+    "coverage>=7.10",
     "pytest-asyncio>=0.23",
     # The worker payload tests drive the TYTX msgpack transport branch:
     # without this extra that coverage silently vanishes in a clean env.
@@ -98,6 +100,12 @@ python_functions = "test_*"
 addopts = "-v --cov=kajenn_orchestra --cov-report=term-missing"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
+
+[tool.coverage.run]
+# The tests start real template and worker processes (python -m ...). The
+# lines those processes run are measured too: without this, code that runs
+# only in a real process counts as never executed.
+patch = ["subprocess"]
 
 [tool.ruff]
 line-length = 100
