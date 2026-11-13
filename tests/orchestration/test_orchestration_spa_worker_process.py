@@ -52,14 +52,13 @@ from tests.orchestration.message_helpers import call_endpoint
 from kajenn_orchestra.orchestration import (
     FreezeHandler,
     SpaWorker,
-    WorkerEntry,
     WorkerHandler,
 )
 from kajenn_orchestra.orchestration.worker_connector import (
     ENVELOPE_SLOT_WORKER_SNAPSHOT,
     WorkerConnector,
 )
-from kajenn_orchestra.orchestration.worker_entry import DEFAULT_WORKER_CLASS
+from kajenn_orchestra.orchestration.worker_entry import DEFAULT_WORKER_CLASS, WorkerEntry
 
 from .group_stub import GroupStub
 from .conftest import kill_process, wait_for

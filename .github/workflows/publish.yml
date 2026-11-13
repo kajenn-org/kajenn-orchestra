@@ -101,3 +101,59 @@ jobs:
             --title='${{ github.ref_name }}' \
             --notes-file=release-notes.md \
             dist/*
+
+  image:
+    name: Publish the container image
+    needs: publish-to-pypi
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The wheel published to PyPI: the image holds exactly that release.
+      - name: Download distribution artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-package-distributions
+          path: dist/
+
+      - name: Version of the tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The kajenn image of the latest release, named by digest: the image
+      # records exactly which base it holds.
+      - name: Digest of the kajenn image
+        id: base
+        run: |
+          digest=$(docker buildx imagetools inspect ghcr.io/kajenn-org/kajenn:latest \
+            --format '{{json .Manifest}}' | jq -r .digest)
+          case "$digest" in sha256:*) ;; *) echo "no digest for the kajenn image"; exit 1 ;; esac
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: |
+            KAJENN_IMAGE=ghcr.io/kajenn-org/kajenn@${{ steps.base.outputs.digest }}
+          labels: |
+            org.opencontainers.image.base.name=ghcr.io/kajenn-org/kajenn:latest
+            org.opencontainers.image.base.digest=${{ steps.base.outputs.digest }}
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository }}:latest
+          platforms: linux/amd64
+          provenance: false
