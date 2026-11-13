@@ -51,11 +51,15 @@ from .group_handler import GroupHandler
 from .spa_commander import SpaCommander
 from .spa_worker import SpaWorker
 from .template_connector import TemplateConnector, TemplateRefused
-from .template_entry import TemplateEntry
 from .worker_connector import WorkerConnector
-from .worker_entry import WorkerEntry
 from .worker_handler import WorkerHandler
 from .worker_process import ForkedProcess, SpawnedProcess, WorkerProcess
+
+# ``template_entry`` and ``worker_entry`` are not imported here. Each is the
+# module a child process is started with (``python -m``), and a module this
+# package had already imported would be loaded a second time as the program.
+# Their classes are ``template_entry.TemplateEntry`` and
+# ``worker_entry.WorkerEntry``.
 
 __all__ = [
     "AssignmentRefused",
@@ -71,11 +75,9 @@ __all__ = [
     "SpaWorker",
     "SpawnedProcess",
     "TemplateConnector",
-    "TemplateEntry",
     "TemplateRefused",
     "UserOnHold",
     "WorkerConnector",
-    "WorkerEntry",
     "WorkerEnvelopeHandler",
     "WorkerHandler",
     "WorkerProcess",

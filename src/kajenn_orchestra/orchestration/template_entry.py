@@ -121,8 +121,10 @@ class TemplateEntry:
             # them verbatim, and no descriptor of the test runner is touched.
             self.pipe_out = os.fdopen(os.dup(sys.stdout.fileno()), "w")
             os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
+            self.owns_pipe_out = True
         else:
             self.pipe_out = pipe_out
+            self.owns_pipe_out = False
         self.name = ""
         self.group_engine: Any = None
         self.logger = logging.getLogger(__name__)
@@ -309,9 +311,27 @@ class TemplateEntry:
             self.fork_worker(json.loads(raw))
 
     def run(self) -> int:
-        """Run the whole life; 0 when the pipe ended."""
-        self.serve()
+        """Run the whole life; 0 when the pipe ended.
+
+        The answer channel this process opened is closed on the way out, also
+        when the build or a fork raised.
+        """
+        try:
+            self.serve()
+        finally:
+            self.close_own_pipe()
         return 0
+
+    def close_own_pipe(self) -> None:
+        """Close the answer channel, when this process is the one that opened it.
+
+        The duplicate of the real stdout belongs to this process alone and
+        nothing else closes it: left open, Python reports it as an unclosed file
+        when the template leaves. A pipe handed in by the caller stays the
+        caller's, open, for the caller to read.
+        """
+        if self.owns_pipe_out:
+            self.pipe_out.close()
 
 
 def main() -> int:
