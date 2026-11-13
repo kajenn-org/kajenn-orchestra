@@ -5,6 +5,30 @@ All notable changes to kajenn-orchestra are recorded here. The format follows
 [Semantic Versioning](https://semver.org/). Releases before 0.6.0 are listed
 on [GitHub Releases](https://github.com/kajenn-org/kajenn-orchestra/releases).
 
+## [0.7.0] - 2026-11-13
+
+### Breaking
+
+- `TemplateEntry` and `WorkerEntry` are no longer exported by
+  `kajenn_orchestra.orchestration`. Import them from their modules,
+  `kajenn_orchestra.orchestration.template_entry` and
+  `kajenn_orchestra.orchestration.worker_entry` (#36).
+
+### Added
+
+- The container image `ghcr.io/kajenn-org/kajenn-orchestra`: kajenn-orchestra
+  on top of the kajenn image, started with `kajenn serve` on `/app/config.py`.
+  Published at every release as `X.Y.Z` and `latest`, and every night from
+  `develop` as `develop` and `develop-YYYYMMDD`. `/image-packages.txt` lists
+  its Python packages with their versions (#38).
+
+### Fixed
+
+- A template or a worker started with `python -m` loads its entry module
+  once: the `RuntimeWarning` at every start is gone (#36).
+- The template closes the answer channel it opened: the `ResourceWarning`
+  about an unclosed file when a template leaves is gone (#36).
+
 ## [0.6.1] - 2026-11-12
 
 ### Fixed
