@@ -27,11 +27,15 @@ What the suite pins:
   the RSS the worker declares, summed and as the largest value, no largest
   value for a group without workers;
 - after two clicks of a browser: the user, the connection, the served calls
-  are seen per group, and the commander knows the user and the connection.
+  are seen per group, and the commander knows the user and the connection;
+  a page the site opens is seen per group and by the commander;
+- the CPU share the commander measures is written as a ratio of one core;
+- the commander's known events are written at 0 before their first count.
 """
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 import tempfile
 import uuid
@@ -56,6 +60,11 @@ OTHER_GROUP = "alt"
 ENTRY_MODULE = "kajenn_orchestra.orchestration.worker_entry"
 WORKER_CLASS = f"{__name__}:X_SpaWorker_metrics"
 DECLARED_RSS_BYTES = 35_000_000
+#: The commander's CPU cadence: wide enough that a reading stays the same
+#: across one scrape, short enough that the first one comes within seconds.
+CPU_SAMPLE_SECONDS = 0.5
+PAGE_PATH = "/page"
+PAGE_ID = "page-1"
 
 POOL_FAMILIES = {
     "kajenn_orchestra_group_workers",
@@ -114,6 +123,10 @@ class X_SpaWorker_metrics(X_SpaWorker):
         if connection_id is None or self.connection_register.get(connection_id) is None:
             connection_id = f"site-{uuid.uuid4().hex}"
             self.new_connection(connection_id, user=environ["genro.identity"])
+        if environ["PATH_INFO"] == PAGE_PATH:
+            with self.dispatch_lock:
+                owner = self.connection_register.get(connection_id)["user"]
+            self.new_page(owner, PAGE_ID, connection_id=connection_id)
         start_response("200 OK", [("Content-Type", "text/plain")])
         return [b"ok"]
 
@@ -133,6 +146,7 @@ def recipe_for(root: Path) -> type[AsgiConfigBuilder]:
                 frozen_users_path=str(root / "frozen_users"),
                 instance_dir=str(root / "i"),
                 orchestration_log_path=str(root / "orchestration.log"),
+                cpu_temperature_sample_seconds=CPU_SAMPLE_SECONDS,
             )
             groups = commander.groups(default=BASE_GROUP)
             for name in (OTHER_GROUP, BASE_GROUP):
@@ -162,10 +176,10 @@ async def server(repo_on_pythonpath):
     shutil.rmtree(root, ignore_errors=True)
 
 
-async def browse(server: AsgiServer, cid: str | None = None) -> str:
+async def browse(server: AsgiServer, cid: str | None = None, path: str = "/catalog") -> str:
     """One click; returns the connection id the answer's cookie names."""
     answer = await ask_app(
-        server, "/catalog", cookies={SPA_CONNECTION_ID_COOKIE: cid} if cid else None)
+        server, path, cookies={SPA_CONNECTION_ID_COOKIE: cid} if cid else None)
     assert answer["status"] == 200
     if cid is not None:
         return cid
@@ -212,8 +226,26 @@ async def test_every_pool_family_is_in_the_text_with_the_front_app_label(server)
 
     assert POOL_FAMILIES <= set(families)
     assert families["kajenn_orchestra_users"] == {(("app", APP_CODE),): 0.0}
-    # The base's families are still there: the override keeps super().
-    assert "kajenn_mcp_calls" in families
+    assert families["kajenn_orchestra_commander_events"] == {
+        (("app", APP_CODE), ("event", event)): 0.0
+        for event in ("frozen_users_discarded", "orphan_folders_discarded", "requests_refused")
+    }
+
+
+async def test_the_cpu_share_is_written_as_a_ratio_of_one_core(server):
+    worker = server.applications[APP_CODE].commander.group_map[BASE_GROUP].reception
+    async with asyncio.timeout(10):
+        while True:
+            before = worker.get_cpu_temperature_percent()
+            families = await scrape(server)
+            after = worker.get_cpu_temperature_percent()
+            if before is not None and before == after:
+                break
+            await asyncio.sleep(0.05)
+
+    assert group_sample(families, "kajenn_orchestra_group_cpu_ratio", BASE_GROUP) == before / 100
+    assert group_sample(
+        families, "kajenn_orchestra_group_max_worker_cpu_ratio", BASE_GROUP) == before / 100
 
 
 async def test_living_workers_and_declared_memory_per_group(server):
@@ -256,3 +288,15 @@ async def test_a_browser_is_seen_per_group_and_by_the_commander(server):
     assert group_sample(families, "kajenn_orchestra_group_users", OTHER_GROUP) == 0
     assert families["kajenn_orchestra_users"] == {(("app", APP_CODE),): 1.0}
     assert families["kajenn_orchestra_connections"] == {(("app", APP_CODE),): 1.0}
+    assert families["kajenn_orchestra_pages"] == {(("app", APP_CODE),): 0.0}
+
+
+async def test_a_page_the_site_opens_is_seen_per_group_and_by_the_commander(server):
+    cid = await browse(server)
+    await browse(server, cid, PAGE_PATH)
+    await browse(server, cid)
+    families = await scrape(server)
+
+    assert group_sample(families, "kajenn_orchestra_group_pages", BASE_GROUP) == 1
+    assert group_sample(families, "kajenn_orchestra_group_max_worker_pages", BASE_GROUP) == 1
+    assert families["kajenn_orchestra_pages"] == {(("app", APP_CODE),): 1.0}

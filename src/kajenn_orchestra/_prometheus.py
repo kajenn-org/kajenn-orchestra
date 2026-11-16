@@ -23,7 +23,7 @@ the commander already holds.
 - Per group, over the group's living workers (``GroupHandler.living_workers``):
   how many there are, and the sum and the largest value of what their last
   photo (``WorkerHandler.worker_snapshot``) and the commander's CPU reading
-  (``WorkerHandler.cpu_temperature_percent``) carry. A living worker that has
+  (``WorkerHandler.get_cpu_temperature_percent``, None when stale) carry. A living worker that has
   sent no photo yet counts as a worker and adds nothing. A largest value with
   no worker to read it from has no sample; PSS and CPU, which a worker may not
   have (PSS off Linux, CPU before its second reading), have no sum sample
@@ -38,7 +38,8 @@ the commander already holds.
 - For the pool: users, connections and pages the commander knows
   (``user_map``, ``connection_user_map``, ``page_connection_map``; a
   connection stays in its map until its user is dropped), and the
-  commander's own counts (``counters``) as one counter family by ``event``.
+  commander's own counts (``counters``) as one counter family by ``event``,
+  the known events at 0 before their first count.
 
 The text is written with ``generate_latest`` on a ``CollectorRegistry``
 created for each call, never the module-level ``REGISTRY``. The families are
@@ -63,11 +64,21 @@ __all__: list[str] = []
 PREFIX = "kajenn_orchestra_"
 """The prefix of every family this package writes."""
 
+COMMANDER_EVENTS = ("frozen_users_discarded", "orphan_folders_discarded", "requests_refused")
+"""The keys ``SpaCommander`` counts in ``counters``, written at 0 before the first.
+
+``SpaCommander`` holds no list of them: each key is written where it is counted.
+A key counted that is not listed here is still written, from the first count.
+"""
+
 
 def photo_value(worker_handler: WorkerHandler, key: str) -> float | None:
     """One scalar of the worker's last photo; None without a photo, or when it is None there."""
     photo = worker_handler.worker_snapshot
-    return None if photo is None else photo[key]
+    if photo is None:
+        return None
+    value: float | None = photo[key]
+    return value
 
 
 def photo_users_total(worker_handler: WorkerHandler, key: str) -> float | None:
@@ -75,12 +86,16 @@ def photo_users_total(worker_handler: WorkerHandler, key: str) -> float | None:
     photo = worker_handler.worker_snapshot
     if photo is None:
         return None
-    return sum(row["item"][key] for row in photo["users"].values())
+    total: float = sum(row["item"][key] for row in photo["users"].values())
+    return total
 
 
 def cpu_ratio(worker_handler: WorkerHandler) -> float | None:
-    """The smoothed CPU share the commander measured, as a ratio of one core; None before it."""
-    percent = worker_handler.cpu_temperature_percent
+    """The smoothed CPU share the commander measured, as a ratio of one core.
+
+    None before the first reading and when the last one is stale.
+    """
+    percent = worker_handler.get_cpu_temperature_percent()
     return None if percent is None else percent / 100.0
 
 
@@ -178,7 +193,8 @@ def pool_families(commander: SpaCommander) -> list[Metric]:
     events = CounterMetricFamily(
         f"{PREFIX}commander_events",
         "Events counted by the commander since it started, per event.", labels=["event"])
-    for event, count in sorted(commander.counters.items()):
+    counts = {**dict.fromkeys(COMMANDER_EVENTS, 0), **commander.counters}
+    for event, count in sorted(counts.items()):
         events.add_metric([event], count)
     return [
         GaugeMetricFamily(
