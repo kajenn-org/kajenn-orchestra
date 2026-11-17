@@ -52,7 +52,7 @@ class ApiApp(BaseApplication):
 
 
 class TwoAppConfig(AsgiConfigBuilder):
-    """Two apps (shop on the root, api secondary), cors + basic auth, host/port.
+    """Two apps (shop on the root, api secondary), cors, host/port.
 
     The site with no pool at all, against which the read stack must answer
     ``None`` for every orchestration question. The same recipe drives the core's
@@ -64,13 +64,7 @@ class TwoAppConfig(AsgiConfigBuilder):
         cfg = root.configuration()
         cfg.server(host="0.0.0.0", port=9100, external_url="https://shop.example.com")
         cfg.middleware(cors=True)
-        self.authentication_section(cfg)
         self.applications_section(cfg)
-
-    def authentication_section(self, cfg: Any) -> None:
-        """One Basic user, handed to ``AuthCore`` through ``credentials``."""
-        creds = cfg.authentication().credentials()
-        creds.basic_user(username="admin", password="secret", tags="admin")
 
     def applications_section(self, cfg: Any) -> None:
         """``shop`` claims the site root, ``api`` answers its own mount."""
