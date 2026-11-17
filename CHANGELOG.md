@@ -5,6 +5,28 @@ All notable changes to kajenn-orchestra are recorded here. The format follows
 [Semantic Versioning](https://semver.org/). Releases before 0.6.0 are listed
 on [GitHub Releases](https://github.com/kajenn-org/kajenn-orchestra/releases).
 
+## [0.8.0] - 2026-11-17
+
+### Breaking
+
+- kajenn-orchestra requires kajenn 0.10.0 or later. The breaking changes of
+  kajenn 0.10.0 apply, listed in its changelog: authentication belongs to the
+  application mounted with code `_auth`, and the recipe element
+  `authentication` is removed.
+
+### Added
+
+- `SpaApplication.prometheus_metrics` adds the pool's families, prefixed
+  `kajenn_orchestra_`, to the kajenn endpoint `GET /_server/metrics`
+  (kajenn-org/kajenn#141):
+  - per group (label `group`): living workers, the sum and the largest value
+    of one worker of what the workers report, the memory quota and the memory
+    concession;
+  - for the pool: users, connections and pages the commander knows, and the
+    commander's events counted by `event`.
+  Before the pool is built only the kajenn families are returned (#44).
+- `prometheus_client` is a dependency.
+
 ## [0.7.0] - 2026-11-13
 
 ### Breaking
