@@ -105,6 +105,7 @@ from kajenn.response import Response
 from kajenn.wsx_payload import SerializedWsxPayload
 from kajenn.routed_application import RoutedApplication
 from kajenn.server import QUITTING, REFUSED_RETRY_AFTER_SECONDS, RUNNING
+from ._prometheus import pool_text
 from .inspector_section import INSPECTOR_ENV_VAR, InspectorSection
 from .orchestration import AssignmentRefused, SiteFailedRequest, SpaCommander
 from .orchestration.group_policy import GroupPolicy, GroupPolicyError
@@ -621,6 +622,23 @@ class SpaApplication(RoutedApplication):
                 f"{type(self).__name__} has no pool yet: it is built when the server starts"
             )
         return self._commander
+
+    def prometheus_metrics(self) -> str:
+        """The pool's families, then the base's, as exposition text.
+
+        The families of the pool, read from the commander at call time: per
+        group the living workers, the sum and the largest value of one worker
+        of what their last photos and the commander's CPU reading carry, the
+        memory quota and the concession; for the pool the users, connections
+        and pages the commander knows and its own counts by event. They are
+        followed by ``RoutedApplication.prometheus_metrics`` (MCP, and the
+        families of a dedicated process). Before the pool is built — the
+        server is still starting — only the base's text is returned.
+        """
+        base = super().prometheus_metrics()
+        if self._commander is None:
+            return base
+        return pool_text(self._commander) + base
 
     @property
     def internal_roots(self) -> set[str]:

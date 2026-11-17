@@ -171,7 +171,9 @@ class ServerConfiguration(AsgiConfigBuilder):
                 name=name,
                 worker_memory_max_percent=50.0,
                 worker_memory_admission_percent=80.0,
-                restart_occupancy_max_percent=95.0,
+                # No restart in this story: step 8 puts the reception past its
+                # ceiling, and a restart would take the resident down with it.
+                restart_occupancy_max_percent=100.0,
                 user_idle_freeze_minutes={idle_minutes},
                 entry_module="{entry_module}",
                 worker_class="{worker_class}",
