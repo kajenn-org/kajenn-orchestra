@@ -16,13 +16,12 @@
 
 A recipe builds a real ``AsgiServer`` with one SPA front and two groups; its
 lifespan builds the pool and starts the reception, a REAL child process. Every
-read is ``GET /_server/metrics`` with an API key whose identity holds only
-``SERVER_METRICS``, parsed with ``prometheus_client``'s own parser.
+read is ``GET /_server/metrics`` with a ``gak_`` token of a user of ``_auth``
+who holds only ``SERVER_METRICS``, parsed with ``prometheus_client``'s own parser.
 
 What the suite pins:
 
-- every pool family is in the text with ``app=<front code>``, beside the
-  front's base families;
+- every pool family is in the text with ``app=<front code>``;
 - per group: the living workers (one in the elected group, none in the other),
   the RSS the worker declares, summed and as the largest value, no largest
   value for a group without workers;
@@ -46,12 +45,11 @@ from typing import Any
 import pytest
 from prometheus_client.parser import text_string_to_metric_families
 
-from kajenn import AsgiServer
-from kajenn.auth.api_key_store import ApiKeyStore
+from kajenn import AsgiServer, AuthApplicationBase
 from kajenn.config.builder import AsgiConfigBuilder
 from kajenn_orchestra.spa_app import SPA_CONNECTION_ID_COOKIE, SpaApplication
 
-from ..conftest import ask_app, start_server
+from ..conftest import MemoryAuthStore, ask_app, start_server
 from .x_spa_worker import X_SpaWorker
 
 APP_CODE = "shop"
@@ -93,25 +91,6 @@ POOL_FAMILIES = {
 }
 
 
-class MemoryApiKeyStore(ApiKeyStore):
-    """An ``ApiKeyStore`` over a dict: the shared issue/verify logic, no storage."""
-
-    def __init__(self, storage: object) -> None:
-        self.records: dict[str, dict[str, Any]] = {}
-
-    def load_all(self) -> list[dict[str, Any]]:
-        return list(self.records.values())
-
-    def get(self, key_id: str) -> dict[str, Any] | None:
-        return self.records.get(key_id)
-
-    def save(self, record: dict[str, Any]) -> None:
-        self.records[record["key_id"]] = record
-
-    def delete(self, key_id: str) -> bool:
-        return self.records.pop(key_id, None) is not None
-
-
 class X_SpaWorker_metrics(X_SpaWorker):
     """A site that opens a connection for whoever has none and answers 200."""
 
@@ -132,15 +111,17 @@ class X_SpaWorker_metrics(X_SpaWorker):
 
 
 def recipe_for(root: Path) -> type[AsgiConfigBuilder]:
-    """One front with two groups, the elected one declared second, and an api-key store."""
+    """One front with two groups, the elected one declared second, and ``_auth``."""
 
     class MetricsConfiguration(AsgiConfigBuilder):
         default_config = False
 
         def main(self, configuration_root: Any) -> None:
             cfg = configuration_root.configuration()
-            cfg.authentication().tokens(store_class=MemoryApiKeyStore)
-            front = cfg.applications().application(
+            applications = cfg.applications()
+            applications.application(code="_auth", app_class=AuthApplicationBase).store(
+                store_class=MemoryAuthStore)
+            front = applications.application(
                 code=APP_CODE, mount="", app_class=SpaApplication)
             commander = front.orchestration().commander(
                 frozen_users_path=str(root / "frozen_users"),
@@ -191,7 +172,13 @@ async def browse(server: AsgiServer, cid: str | None = None, path: str = "/catal
 
 async def scrape(server: AsgiServer) -> dict[str, dict[tuple[tuple[str, str], ...], float]]:
     """GET /_server/metrics as Prometheus does; the samples of every family, by labels."""
-    key = server.api_key_store.issue("prometheus", ["SERVER_METRICS"])
+    store = server.applications["_auth"].store
+    store.save_user({
+        "identity": "prometheus", "groups": [], "primary_group": None,
+        "tags": ["SERVER_METRICS"], "status": "confirmed", "system": False,
+        "password_hash": None, "email": None, "external_ids": [],
+    })
+    key = store.issue_token("prometheus", ["SERVER_METRICS"])
     scope = {
         "type": "http", "method": "GET", "path": "/_server/metrics", "query_string": b"",
         "headers": [(b"host", b"site.example"), (b"authorization", f"Bearer {key}".encode())],

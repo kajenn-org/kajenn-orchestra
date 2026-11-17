@@ -33,6 +33,11 @@ waits for named applications, ``start_server`` runs the lifespan and waits for
 all of them, ``start_server_without`` waits until a front that gave up is gone.
 The autouse ``stop_started_servers`` shuts down the lifespans those two opened.
 
+``MemoryAuthStore`` is an ``AuthStore`` over dicts, copied from kajenn's
+``tests/storage_support.py``: a test mounts ``AuthApplicationBase`` at
+``_auth`` over it and writes its users and tokens through the mounted
+application's public ``store``.
+
 ``kajenn_home`` is autouse: no test ever reads the developer's real
 ``~/.kajenn``, whose ``config.py`` would otherwise layer itself under every
 ``AsgiServer(config=...)`` built here.
@@ -48,6 +53,7 @@ from typing import Any, Callable
 import pytest
 from genro_toolbox.smartasync import set_sync
 
+from kajenn import AuthStore
 from kajenn.config import HOME_ENV
 from kajenn.types import Message, Scope
 
@@ -369,3 +375,98 @@ def get_answer_header(answer: dict[str, Any], name: str) -> str | None:
         Its value, or None when the answer carries no such header.
     """
     return next((value for key, value in answer["headers"] if key.lower() == name), None)
+
+
+class MemoryAuthStore(AuthStore):
+    """In-memory ``AuthStore`` backend: the shared rules over five dicts."""
+
+    __slots__ = ("_records",)
+
+    def __init__(self, storage: object = None) -> None:
+        self._records: dict[str, dict[str, dict[str, Any]]] = {
+            "users": {},
+            "groups": {},
+            "tags": {},
+            "tokens": {},
+            "login_failures": {},
+        }
+
+    @property
+    def user_list(self) -> list[dict[str, Any]]:
+        return [dict(record) for record in self._records["users"].values()]
+
+    @property
+    def group_list(self) -> list[dict[str, Any]]:
+        return [dict(record) for record in self._records["groups"].values()]
+
+    @property
+    def tag_list(self) -> list[dict[str, Any]]:
+        return [dict(record) for record in self._records["tags"].values()]
+
+    @property
+    def token_list(self) -> list[dict[str, Any]]:
+        return [dict(record) for record in self._records["tokens"].values()]
+
+    def get_login_failures(self, identity: str) -> dict[str, Any] | None:
+        """The login failure record for ``identity``, or None."""
+        record = self._records["login_failures"].get(identity)
+        return dict(record) if record is not None else None
+
+    def save_login_failures(self, record: dict[str, Any]) -> None:
+        """Persist login failures, keyed by ``identity``."""
+        self._records["login_failures"][record["identity"]] = dict(record)
+
+    def delete_login_failures(self, identity: str) -> bool:
+        """Remove login failures. True if removed, False if absent."""
+        return self._records["login_failures"].pop(identity, None) is not None
+
+    def get_user(self, identity: str) -> dict[str, Any] | None:
+        record = self._records["users"].get(identity)
+        return dict(record) if record is not None else None
+
+    def get_group(self, code: str) -> dict[str, Any] | None:
+        record = self._records["groups"].get(code)
+        return dict(record) if record is not None else None
+
+    def get_tag(self, code: str) -> dict[str, Any] | None:
+        record = self._records["tags"].get(code)
+        return dict(record) if record is not None else None
+
+    def get_token(self, key_id: str) -> dict[str, Any] | None:
+        record = self._records["tokens"].get(key_id)
+        return dict(record) if record is not None else None
+
+    def write_user(self, record: dict[str, Any]) -> None:
+        self._records["users"][record["identity"]] = dict(record)
+
+    def save_group(self, record: dict[str, Any]) -> None:
+        self._records["groups"][record["code"]] = dict(record)
+
+    def save_tag(self, record: dict[str, Any]) -> None:
+        self._records["tags"][record["code"]] = dict(record)
+
+    def save_token(self, record: dict[str, Any]) -> None:
+        self._records["tokens"][record["key_id"]] = dict(record)
+
+    def delete_user(self, identity: str) -> bool:
+        tokens = self._records["tokens"]
+        for key_id in [k for k, token in tokens.items() if token.get("user") == identity]:
+            del tokens[key_id]
+        self._records["login_failures"].pop(identity, None)
+        return self._records["users"].pop(identity, None) is not None
+
+    def delete_group(self, code: str) -> bool:
+        members = [
+            user["identity"]
+            for user in self._records["users"].values()
+            if code in user.get("groups", [])
+        ]
+        if members:
+            raise ValueError(f"group {code!r} has members: {', '.join(members)}")
+        return self._records["groups"].pop(code, None) is not None
+
+    def delete_tag(self, code: str) -> bool:
+        return self._records["tags"].pop(code, None) is not None
+
+    def delete_token(self, key_id: str) -> bool:
+        return self._records["tokens"].pop(key_id, None) is not None
